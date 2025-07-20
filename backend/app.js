@@ -95,6 +95,22 @@ try {
   console.log('⚠️ Auth routes not loaded:', err.message);
 }
 
+console.log('🔄 Loading payment routes...');
+
+try {
+  const paymentRoutes = require('./routes/payments');
+  app.use('/api/payments', paymentRoutes);
+  console.log('✅ Payment routes loaded successfully');
+  
+  // Log de debug para verificar variables de entorno
+  console.log('🔑 Stripe configuration check:');
+  console.log('- STRIPE_SECRET_KEY exists:', !!process.env.STRIPE_SECRET_KEY);
+  console.log('- STRIPE_PUBLISHABLE_KEY exists:', !!process.env.STRIPE_PUBLISHABLE_KEY);
+  
+} catch (err) {
+  console.error('❌ Error loading payment routes:', err.message);
+}
+
 try {
   const orderRoutes = require('./routes/orders');
   app.use('/api/orders', orderRoutes);

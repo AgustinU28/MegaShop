@@ -9,10 +9,6 @@ import {
   Badge, 
   Alert, 
   Spinner,
-  Modal,
-  Form,
-  Table,
-  Carousel,
   Breadcrumb,
   Nav,
   Tab
@@ -26,34 +22,24 @@ import {
   FaArrowLeft,
   FaPlus,
   FaMinus,
-  FaCheck,
-  FaTimes,
   FaShippingFast,
   FaShieldAlt,
   FaUndo,
-  FaEye,
-  FaCopy,
-  FaWhatsapp,
-  FaFacebook,
-  FaTwitter
+  FaEye
 } from 'react-icons/fa';
 import { useCart } from '../../context/CartContext';
 import productService from '../../services/productService';
-import ProductCard from './ProductCard';
 
 const ProductDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { addToCart, loading: cartLoading } = useCart();
+  const { addToCart } = useCart();
   
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
-  const [showImageModal, setShowImageModal] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [relatedProducts, setRelatedProducts] = useState([]);
   const [activeTab, setActiveTab] = useState('description');
   const [message, setMessage] = useState(null);
 
@@ -68,16 +54,21 @@ const ProductDetail = () => {
           throw new Error('ID de producto no válido');
         }
 
-        const response = await productService.getProductById(id);
-        setProduct(response.data);
+        console.log('Cargando producto con ID:', id);
         
-        // Cargar productos relacionados
-        if (response.data?.category) {
-          loadRelatedProducts(response.data.category, id);
+        // Cargar producto desde tu API de MongoDB
+        const response = await productService.getProductById(id);
+        console.log('Producto cargado:', response);
+        
+        if (response.success && response.data) {
+          setProduct(response.data);
+        } else {
+          throw new Error('Producto no encontrado');
         }
+        
       } catch (err) {
-        setError(err.message);
         console.error('Error loading product:', err);
+        setError(err.message);
       } finally {
         setLoading(false);
       }
@@ -85,20 +76,6 @@ const ProductDetail = () => {
 
     loadProduct();
   }, [id]);
-
-  // Cargar productos relacionados
-  const loadRelatedProducts = async (category, currentProductId) => {
-    try {
-      const response = await productService.getAllProducts({ 
-        category, 
-        limit: 4,
-        exclude: currentProductId 
-      });
-      setRelatedProducts(response.data || []);
-    } catch (err) {
-      console.error('Error loading related products:', err);
-    }
-  };
 
   // Manejar cambio de cantidad
   const handleQuantityChange = (newQuantity) => {
@@ -129,9 +106,10 @@ const ProductDetail = () => {
       // Limpiar mensaje después de 3 segundos
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
+      console.error('Error adding to cart:', err);
       setMessage({ 
         type: 'error', 
-        text: err.message 
+        text: err.message || 'Error al agregar al carrito'
       });
     }
   };
@@ -155,38 +133,40 @@ const ProductDetail = () => {
     }
   };
 
-  // Compartir producto
-  const handleShare = (platform) => {
-    const url = window.location.href;
-    const text = `¡Mira este producto! ${product.title}`;
+  // Renderizar estrellas
+  const renderStars = (rating) => {
+    if (!rating) return null;
     
-    switch (platform) {
-      case 'whatsapp':
-        window.open(`https://wa.me/?text=${encodeURIComponent(text + ' ' + url)}`);
-        break;
-      case 'facebook':
-        window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`);
-        break;
-      case 'twitter':
-        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`);
-        break;
-      case 'copy':
-        navigator.clipboard.writeText(url);
-        setMessage({ type: 'success', text: 'Enlace copiado al portapapeles' });
-        break;
-      default:
-        break;
+    const stars = [];
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 !== 0;
+
+    for (let i = 0; i < fullStars; i++) {
+      stars.push(<FaStar key={i} className="text-warning" />);
     }
-    setShowShareModal(false);
+
+    if (hasHalfStar) {
+      stars.push(<FaStar key="half" className="text-warning" style={{ opacity: 0.5 }} />);
+    }
+
+    const emptyStars = 5 - Math.ceil(rating);
+    for (let i = 0; i < emptyStars; i++) {
+      stars.push(<FaStar key={`empty-${i}`} className="text-muted" />);
+    }
+
+    return stars;
   };
 
+  // Estados de carga y error
   if (loading) {
     return (
-      <Container className="py-5 text-center">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">Cargando producto...</span>
-        </Spinner>
-        <p className="mt-2">Cargando detalles del producto...</p>
+      <Container className="py-5">
+        <div className="text-center">
+          <Spinner animation="border" role="status" size="lg">
+            <span className="visually-hidden">Cargando producto...</span>
+          </Spinner>
+          <p className="mt-3">Cargando producto...</p>
+        </div>
       </Container>
     );
   }
@@ -194,10 +174,11 @@ const ProductDetail = () => {
   if (error) {
     return (
       <Container className="py-5">
-        <Alert variant="danger">
-          <h5>Error al cargar el producto</h5>
+        <Alert variant="danger" className="text-center">
+          <h4>Error al cargar el producto</h4>
           <p>{error}</p>
           <Button variant="outline-danger" onClick={() => navigate('/shop')}>
+            <FaArrowLeft className="me-2" />
             Volver a la tienda
           </Button>
         </Alert>
@@ -208,10 +189,11 @@ const ProductDetail = () => {
   if (!product) {
     return (
       <Container className="py-5">
-        <Alert variant="warning">
-          <h5>Producto no encontrado</h5>
-          <p>El producto que buscas no existe o no está disponible.</p>
+        <Alert variant="warning" className="text-center">
+          <h4>Producto no encontrado</h4>
+          <p>El producto que buscas no existe o ha sido eliminado.</p>
           <Button variant="outline-warning" onClick={() => navigate('/shop')}>
+            <FaArrowLeft className="me-2" />
             Volver a la tienda
           </Button>
         </Alert>
@@ -219,363 +201,253 @@ const ProductDetail = () => {
     );
   }
 
-  const images = product.images || [{ url: product.thumbnail, alt: product.title, isPrimary: true }];
+  // Manejar imágenes del producto
+  const images = product.images && product.images.length > 0 
+    ? product.images.map(img => ({
+        url: typeof img === 'string' ? img : img.url || img,
+        alt: `${product.title} - imagen`
+      }))
+    : [{ url: product.thumbnail, alt: product.title }];
 
   return (
-    <>
-      <Container className="py-4">
-        {/* Breadcrumb */}
-        <Breadcrumb className="mb-4">
-          <Breadcrumb.Item as={Link} to="/">Inicio</Breadcrumb.Item>
-          <Breadcrumb.Item as={Link} to="/shop">Tienda</Breadcrumb.Item>
-          <Breadcrumb.Item active>{product.category}</Breadcrumb.Item>
-        </Breadcrumb>
+    <Container className="py-4">
+      {/* Breadcrumb */}
+      <Breadcrumb className="mb-4">
+        <Breadcrumb.Item linkAs={Link} linkProps={{ to: "/" }}>
+          Inicio
+        </Breadcrumb.Item>
+        <Breadcrumb.Item linkAs={Link} linkProps={{ to: "/shop" }}>
+          Tienda
+        </Breadcrumb.Item>
+        <Breadcrumb.Item active>{product.title}</Breadcrumb.Item>
+      </Breadcrumb>
 
-        {/* Botón volver */}
-        <Button 
-          variant="outline-secondary" 
-          className="mb-4"
-          onClick={() => navigate(-1)}
-        >
-          <FaArrowLeft className="me-2" />
-          Volver
-        </Button>
-
-        {/* Producto principal */}
-        <Row className="mb-5">
-          {/* Imágenes */}
-          <Col lg={6} className="mb-4">
-            <Card>
-              <Card.Body className="p-2">
-                {/* Imagen principal */}
-                <div className="main-image-container mb-3">
-                  <img
-                    src={images[selectedImage]?.url || product.thumbnail}
-                    alt={images[selectedImage]?.alt || product.title}
-                    className="img-fluid rounded cursor-pointer"
-                    onClick={() => setShowImageModal(true)}
-                    style={{ width: '100%', height: '400px', objectFit: 'cover' }}
-                  />
-                  <Button
-                    variant="light"
-                    className="position-absolute top-0 end-0 m-2"
-                    onClick={() => setShowImageModal(true)}
-                  >
-                    <FaEye />
-                  </Button>
-                </div>
-
-                {/* Thumbnails */}
-                {images.length > 1 && (
-                  <Row className="g-2">
-                    {images.map((image, index) => (
-                      <Col key={index} xs={3}>
-                        <img
-                          src={image.url}
-                          alt={image.alt}
-                          className={`img-fluid rounded cursor-pointer border ${
-                            selectedImage === index ? 'border-primary border-2' : 'border-light'
-                          }`}
-                          onClick={() => setSelectedImage(index)}
-                          style={{ height: '80px', objectFit: 'cover' }}
-                        />
-                      </Col>
-                    ))}
-                  </Row>
-                )}
-              </Card.Body>
-            </Card>
-          </Col>
-
-          {/* Información del producto */}
-          <Col lg={6}>
-            <div className="product-info">
-              {/* Header */}
-              <div className="d-flex justify-content-between align-items-start mb-3">
-                <div>
-                  <h1 className="h3 mb-2">{product.title}</h1>
-                  <p className="text-muted mb-1">Código: {product.code}</p>
-                  <p className="text-muted mb-0">Marca: {product.brand}</p>
-                </div>
-                <div className="text-end">
-                  <Button variant="outline-secondary" size="sm" className="me-2">
-                    <FaHeart />
-                  </Button>
-                  <Button 
-                    variant="outline-secondary" 
-                    size="sm"
-                    onClick={() => setShowShareModal(true)}
-                  >
-                    <FaShare />
-                  </Button>
-                </div>
+      <Row>
+        {/* Galería de imágenes */}
+        <Col lg={6}>
+          <Card className="border-0 shadow-sm">
+            <Card.Body className="p-3">
+              {/* Imagen principal */}
+              <div className="mb-3 position-relative">
+                <img
+                  src={images[selectedImage]?.url || product.thumbnail}
+                  alt={images[selectedImage]?.alt || product.title}
+                  className="img-fluid rounded"
+                  style={{ width: '100%', height: '400px', objectFit: 'cover' }}
+                />
+                <Button
+                  variant="light"
+                  className="position-absolute top-0 end-0 m-2"
+                  size="sm"
+                >
+                  <FaEye />
+                </Button>
               </div>
 
-              {/* Precio y stock */}
-              <Card className="mb-4">
-                <Card.Body>
-                  <div className="d-flex justify-content-between align-items-center mb-3">
-                    <h2 className="text-primary mb-0">{formatPrice(product.price)}</h2>
-                    {getStockBadge()}
-                  </div>
+              {/* Thumbnails */}
+              {images.length > 1 && (
+                <Row className="g-2">
+                  {images.map((image, index) => (
+                    <Col key={index} xs={3}>
+                      <img
+                        src={image.url}
+                        alt={image.alt}
+                        className={`img-fluid rounded cursor-pointer border ${
+                          selectedImage === index ? 'border-primary border-2' : 'border-light'
+                        }`}
+                        onClick={() => setSelectedImage(index)}
+                        style={{ height: '80px', objectFit: 'cover', cursor: 'pointer' }}
+                      />
+                    </Col>
+                  ))}
+                </Row>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
 
-                  {/* Mensaje */}
-                  {message && (
-                    <Alert 
-                      variant={message.type === 'success' ? 'success' : message.type === 'warning' ? 'warning' : 'danger'} 
-                      className="py-2"
-                    >
-                      {message.text}
-                    </Alert>
-                  )}
-
-                  {/* Selector de cantidad */}
-                  {product.stock > 0 && (
-                    <div className="d-flex align-items-center mb-3">
-                      <label className="me-3">Cantidad:</label>
-                      <div className="d-flex align-items-center">
-                        <Button
-                          variant="outline-secondary"
-                          size="sm"
-                          onClick={() => handleQuantityChange(quantity - 1)}
-                          disabled={quantity <= 1}
-                        >
-                          <FaMinus />
-                        </Button>
-                        <Form.Control
-                          type="number"
-                          value={quantity}
-                          onChange={(e) => handleQuantityChange(parseInt(e.target.value) || 1)}
-                          className="mx-2 text-center"
-                          style={{ width: '80px' }}
-                          min="1"
-                          max={product.stock}
-                        />
-                        <Button
-                          variant="outline-secondary"
-                          size="sm"
-                          onClick={() => handleQuantityChange(quantity + 1)}
-                          disabled={quantity >= product.stock}
-                        >
-                          <FaPlus />
-                        </Button>
-                      </div>
+        {/* Información del producto */}
+        <Col lg={6}>
+          <div className="product-info">
+            {/* Header */}
+            <div className="d-flex justify-content-between align-items-start mb-3">
+              <div>
+                <h1 className="h3 mb-2">{product.title}</h1>
+                <p className="text-muted mb-1">Código: {product.code}</p>
+                <p className="text-muted mb-0">Marca: {product.brand}</p>
+                {product.averageRating && product.totalReviews > 0 && (
+                  <div className="d-flex align-items-center mt-2">
+                    <div className="me-2">
+                      {renderStars(product.averageRating)}
                     </div>
-                  )}
-
-                  {/* Botones de acción */}
-                  <div className="d-grid gap-2">
-                    <Button
-                      variant="primary"
-                      size="lg"
-                      disabled={product.stock === 0 || cartLoading}
-                      onClick={handleAddToCart}
-                    >
-                      {cartLoading ? (
-                        <>
-                          <Spinner animation="border" size="sm" className="me-2" />
-                          Agregando...
-                        </>
-                      ) : product.stock > 0 ? (
-                        <>
-                          <FaShoppingCart className="me-2" />
-                          Agregar al Carrito
-                        </>
-                      ) : (
-                        'Sin Stock'
-                      )}
-                    </Button>
-                    
-                    <Button
-                      variant="outline-success"
-                      disabled={product.stock === 0}
-                      onClick={() => {
-                        handleAddToCart();
-                        setTimeout(() => navigate('/cart'), 1000);
-                      }}
-                    >
-                      Comprar Ahora
-                    </Button>
-                  </div>
-                </Card.Body>
-              </Card>
-
-              {/* Beneficios */}
-              <Card>
-                <Card.Body>
-                  <h6 className="mb-3">Beneficios de comprar con nosotros</h6>
-                  <div className="row g-3">
-                    <div className="col-6">
-                      <div className="d-flex align-items-center">
-                        <FaShippingFast className="text-primary me-2" />
-                        <small>Envío gratis +$50.000</small>
-                      </div>
-                    </div>
-                    <div className="col-6">
-                      <div className="d-flex align-items-center">
-                        <FaShieldAlt className="text-success me-2" />
-                        <small>Garantía {product.warranty || 12} meses</small>
-                      </div>
-                    </div>
-                    <div className="col-6">
-                      <div className="d-flex align-items-center">
-                        <FaUndo className="text-info me-2" />
-                        <small>Devolución 30 días</small>
-                      </div>
-                    </div>
-                    <div className="col-6">
-                      <div className="d-flex align-items-center">
-                        <FaCheck className="text-warning me-2" />
-                        <small>Producto original</small>
-                      </div>
-                    </div>
-                  </div>
-                </Card.Body>
-              </Card>
-            </div>
-          </Col>
-        </Row>
-
-        {/* Tabs de información */}
-        <Card className="mb-5">
-          <Card.Header>
-            <Nav variant="tabs" activeKey={activeTab} onSelect={setActiveTab}>
-              <Nav.Item>
-                <Nav.Link eventKey="description">Descripción</Nav.Link>
-              </Nav.Item>
-              <Nav.Item>
-                <Nav.Link eventKey="specifications">Especificaciones</Nav.Link>
-              </Nav.Item>
-              <Nav.Item>
-                <Nav.Link eventKey="reviews">Opiniones</Nav.Link>
-              </Nav.Item>
-            </Nav>
-          </Card.Header>
-          <Card.Body>
-            <Tab.Content>
-              <Tab.Pane active={activeTab === 'description'}>
-                <p>{product.description}</p>
-                {product.tags && product.tags.length > 0 && (
-                  <div className="mt-3">
-                    <h6>Tags:</h6>
-                    {product.tags.map((tag, index) => (
-                      <Badge key={index} bg="secondary" className="me-2 mb-2">
-                        {tag}
-                      </Badge>
-                    ))}
+                    <span className="text-muted">
+                      ({product.totalReviews} opiniones)
+                    </span>
                   </div>
                 )}
-              </Tab.Pane>
-              
-              <Tab.Pane active={activeTab === 'specifications'}>
-                {product.specifications && Object.keys(product.specifications).length > 0 ? (
-                  <Table striped bordered hover>
+              </div>
+              <div className="text-end">
+                <Button variant="outline-secondary" size="sm" className="me-2">
+                  <FaHeart />
+                </Button>
+                <Button variant="outline-secondary" size="sm">
+                  <FaShare />
+                </Button>
+              </div>
+            </div>
+
+            {/* Precio y stock */}
+            <Card className="mb-4">
+              <Card.Body>
+                <div className="d-flex justify-content-between align-items-center mb-3">
+                  <h2 className="text-primary mb-0 h2">{formatPrice(product.price)}</h2>
+                  {getStockBadge()}
+                </div>
+
+                {/* Mensaje */}
+                {message && (
+                  <Alert 
+                    variant={
+                      message.type === 'success' ? 'success' : 
+                      message.type === 'warning' ? 'warning' : 'danger'
+                    }
+                    dismissible 
+                    onClose={() => setMessage(null)}
+                    className="mb-3"
+                  >
+                    {message.text}
+                  </Alert>
+                )}
+
+                {/* Selector de cantidad */}
+                <div className="d-flex align-items-center mb-3">
+                  <label className="me-3">Cantidad:</label>
+                  <div className="d-flex align-items-center">
+                    <Button
+                      variant="outline-secondary"
+                      size="sm"
+                      onClick={() => handleQuantityChange(quantity - 1)}
+                      disabled={quantity <= 1}
+                    >
+                      <FaMinus />
+                    </Button>
+                    <span className="mx-3 fw-bold">{quantity}</span>
+                    <Button
+                      variant="outline-secondary"
+                      size="sm"
+                      onClick={() => handleQuantityChange(quantity + 1)}
+                      disabled={quantity >= product.stock}
+                    >
+                      <FaPlus />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Botón agregar al carrito */}
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className="w-100 mb-3"
+                  onClick={handleAddToCart}
+                  disabled={product.stock === 0}
+                >
+                  <FaShoppingCart className="me-2" />
+                  {product.stock === 0 ? 'Sin Stock' : 'Agregar al Carrito'}
+                </Button>
+
+                {/* Información adicional */}
+                <div className="small text-muted">
+                  <div className="d-flex align-items-center mb-2">
+                    <FaShippingFast className="me-2" />
+                    Envío gratis en compras superiores a $50.000
+                  </div>
+                  <div className="d-flex align-items-center mb-2">
+                    <FaShieldAlt className="me-2" />
+                    Garantía oficial de 12 meses
+                  </div>
+                  <div className="d-flex align-items-center">
+                    <FaUndo className="me-2" />
+                    Devolución gratuita en 30 días
+                  </div>
+                </div>
+              </Card.Body>
+            </Card>
+          </div>
+        </Col>
+      </Row>
+
+      {/* Tabs de información */}
+      <Card className="mt-4">
+        <Card.Header>
+          <Nav variant="tabs" activeKey={activeTab} onSelect={setActiveTab}>
+            <Nav.Item>
+              <Nav.Link eventKey="description">Descripción</Nav.Link>
+            </Nav.Item>
+            <Nav.Item>
+              <Nav.Link eventKey="specifications">Especificaciones</Nav.Link>
+            </Nav.Item>
+            <Nav.Item>
+              <Nav.Link eventKey="reviews">Opiniones</Nav.Link>
+            </Nav.Item>
+          </Nav>
+        </Card.Header>
+        <Card.Body>
+          <Tab.Content>
+            <Tab.Pane active={activeTab === 'description'}>
+              <p>{product.description}</p>
+              {product.tags && product.tags.length > 0 && (
+                <div className="mt-3">
+                  <h6>Tags:</h6>
+                  {product.tags.map((tag, index) => (
+                    <Badge key={index} bg="secondary" className="me-2 mb-2">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </Tab.Pane>
+            
+            <Tab.Pane active={activeTab === 'specifications'}>
+              {product.specifications && product.specifications.length > 0 ? (
+                <div className="table-responsive">
+                  <table className="table table-striped">
                     <tbody>
-                      {Object.entries(product.specifications).map(([key, value]) => (
-                        <tr key={key}>
-                          <td><strong>{key}</strong></td>
-                          <td>{value}</td>
+                      {product.specifications.map((spec, index) => (
+                        <tr key={index}>
+                          <td className="fw-bold" style={{ width: '30%' }}>{spec.name}</td>
+                          <td>{spec.value}</td>
                         </tr>
                       ))}
                     </tbody>
-                  </Table>
-                ) : (
-                  <p className="text-muted">No hay especificaciones disponibles.</p>
-                )}
-              </Tab.Pane>
-              
-              <Tab.Pane active={activeTab === 'reviews'}>
-                <div className="text-center py-4">
-                  <p className="text-muted">Las opiniones están próximamente disponibles.</p>
+                  </table>
                 </div>
-              </Tab.Pane>
-            </Tab.Content>
-          </Card.Body>
-        </Card>
+              ) : (
+                <p className="text-muted">No hay especificaciones disponibles.</p>
+              )}
+            </Tab.Pane>
+            
+            <Tab.Pane active={activeTab === 'reviews'}>
+              <div className="text-center py-4">
+                <FaStar size={48} className="text-muted mb-3" />
+                <h5>Próximamente</h5>
+                <p className="text-muted">Las opiniones de clientes estarán disponibles pronto.</p>
+              </div>
+            </Tab.Pane>
+          </Tab.Content>
+        </Card.Body>
+      </Card>
 
-        {/* Productos relacionados */}
-        {relatedProducts.length > 0 && (
-          <div>
-            <h3 className="mb-4">Productos Relacionados</h3>
-            <Row>
-              {relatedProducts.map(relatedProduct => (
-                <Col key={relatedProduct.id} md={3} className="mb-4">
-                  <ProductCard product={relatedProduct} />
-                </Col>
-              ))}
-            </Row>
-          </div>
-        )}
-      </Container>
-
-      {/* Modal de imagen */}
-      <Modal show={showImageModal} onHide={() => setShowImageModal(false)} size="lg" centered>
-        <Modal.Body className="p-0">
-          <Carousel activeIndex={selectedImage} onSelect={setSelectedImage}>
-            {images.map((image, index) => (
-              <Carousel.Item key={index}>
-                <img
-                  src={image.url}
-                  alt={image.alt}
-                  className="d-block w-100"
-                  style={{ height: '500px', objectFit: 'contain' }}
-                />
-              </Carousel.Item>
-            ))}
-          </Carousel>
-        </Modal.Body>
-      </Modal>
-
-      {/* Modal de compartir */}
-      <Modal show={showShareModal} onHide={() => setShowShareModal(false)} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>Compartir Producto</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <div className="d-grid gap-2">
-            <Button variant="success" onClick={() => handleShare('whatsapp')}>
-              <FaWhatsapp className="me-2" />
-              WhatsApp
-            </Button>
-            <Button variant="primary" onClick={() => handleShare('facebook')}>
-              <FaFacebook className="me-2" />
-              Facebook
-            </Button>
-            <Button variant="info" onClick={() => handleShare('twitter')}>
-              <FaTwitter className="me-2" />
-              Twitter
-            </Button>
-            <Button variant="outline-secondary" onClick={() => handleShare('copy')}>
-              <FaCopy className="me-2" />
-              Copiar enlace
-            </Button>
-          </div>
-        </Modal.Body>
-      </Modal>
-
-      <style jsx>{`
-        .cursor-pointer {
-          cursor: pointer;
-        }
-        
-        .main-image-container {
-          position: relative;
-        }
-        
-        .product-info h1 {
-          line-height: 1.2;
-        }
-        
-        .nav-tabs .nav-link {
-          color: #495057;
-        }
-        
-        .nav-tabs .nav-link.active {
-          color: #0d6efd;
-          font-weight: 600;
-        }
-      `}</style>
-    </>
+      {/* Botón volver */}
+      <div className="mt-4">
+        <Button 
+          variant="outline-secondary" 
+          onClick={() => navigate('/shop')}
+        >
+          <FaArrowLeft className="me-2" />
+          Volver a la tienda
+        </Button>
+      </div>
+    </Container>
   );
 };
 

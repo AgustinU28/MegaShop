@@ -118,6 +118,14 @@ try {
   console.log('⚠️ Order routes not loaded:', err.message);
 }
 
+try {
+  const paymentRoutes = require('./routes/payments');
+  app.use('/api/payments', paymentRoutes);
+  console.log('✅ Payment routes loaded');
+} catch (err) {
+  console.log('⚠️ Payment routes not loaded:', err.message);
+}
+
 // 🔍 Estadísticas de base de datos
 app.get('/api/stats', async (req, res) => {
   try {
