@@ -1,4 +1,4 @@
-// frontend/src/components/orders/OrderList.jsx - Archivo completo corregido
+// frontend/src/components/orders/OrderList.jsx - Archivo completo con actualización incremental
 import React, { useState, useEffect } from 'react';
 import { 
   Container, 
@@ -31,7 +31,8 @@ import {
   FaCheckCircle,
   FaClock,
   FaShippingFast,
-  FaTimesCircle
+  FaTimesCircle,
+  FaSync // ✅ NUEVO ÍCONO AGREGADO
 } from 'react-icons/fa';
 import orderService from '../../services/orderService';
 
@@ -41,6 +42,11 @@ const OrderList = () => {
   const [error, setError] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  // ✅ NUEVOS ESTADOS PARA ACTUALIZACIÓN INCREMENTAL
+  const [lastOrderCount, setLastOrderCount] = useState(0);
+  const [hasNewOrders, setHasNewOrders] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
 
   // Estados para filtros y paginación
   const [filters, setFilters] = useState({
@@ -68,8 +74,21 @@ const OrderList = () => {
     loadOrders();
   }, [filters, pagination.currentPage]);
 
-  // ✅ FUNCIÓN CORREGIDA
-  const loadOrders = async () => {
+  // ✅ NUEVO EFECTO PARA POLLING PERIÓDICO
+  useEffect(() => {
+    // Polling cada 30 segundos para detectar nuevas órdenes
+    const interval = setInterval(() => {
+      if (pagination.currentPage === 1 && !loading && !hasNewOrders) {
+        console.log('🔄 Checking for new orders...');
+        loadOrders();
+      }
+    }, 30000); // 30 segundos
+
+    return () => clearInterval(interval);
+  }, [pagination.currentPage, loading, filters, hasNewOrders]);
+
+  // ✅ FUNCIÓN MODIFICADA - loadOrders con detección de nuevas órdenes
+  const loadOrders = async (isRefresh = false) => {
     try {
       setLoading(true);
       const queryParams = {
@@ -86,23 +105,44 @@ const OrderList = () => {
       console.log('📦 Response.data:', response.data);
       
       // ✅ CORRECCIÓN: Acceso correcto a los datos
-      // El backend retorna: { success: true, data: { orders: [...], pagination: {...} } }
-      // El orderService envuelve esto en: { success: true, data: response.data, message: '...' }
-      // Por tanto necesitamos: response.data.data.orders
-      
       const ordersData = response.data.data?.orders || [];
       const paginationData = response.data.data?.pagination || {};
       
       console.log('✅ Extracted orders:', ordersData);
-      console.log('✅ Extracted pagination:', paginationData);
+      console.log('✅ Previous order count:', lastOrderCount);
+      console.log('✅ New total orders:', paginationData.totalOrders);
       console.log('✅ Orders count:', ordersData.length);
       
-      setOrders(ordersData);
+      // ✅ DETECTAR NUEVAS ÓRDENES
+      if (lastOrderCount > 0 && paginationData.totalOrders > lastOrderCount && !isRefresh) {
+        setHasNewOrders(true);
+        console.log('🆕 Nuevas órdenes detectadas!');
+      }
+      
+      // ✅ ACTUALIZACIÓN INTELIGENTE
+      if (pagination.currentPage === 1 && !isRefresh && !hasNewOrders) {
+        // Si estamos en la primera página, mergeamos las nuevas órdenes
+        const existingOrderIds = new Set(orders.map(order => order._id));
+        const newOrders = ordersData.filter(order => !existingOrderIds.has(order._id));
+        
+        if (newOrders.length > 0) {
+          console.log('➕ Agregando nuevas órdenes:', newOrders.length);
+          setOrders(prevOrders => [...newOrders, ...prevOrders]);
+        } else if (ordersData.length > 0) {
+          setOrders(ordersData);
+        }
+      } else {
+        // Para otras páginas o refresh completo, reemplazar
+        setOrders(ordersData);
+      }
+      
       setPagination(prev => ({
         ...prev,
         totalPages: paginationData.totalPages || 1,
         totalOrders: paginationData.totalOrders || 0
       }));
+
+      setLastOrderCount(paginationData.totalOrders || 0);
 
       // Actualizar URL
       const newSearchParams = new URLSearchParams();
@@ -112,6 +152,11 @@ const OrderList = () => {
       setSearchParams(newSearchParams);
 
       setError(null);
+      
+      // ✅ ACTUALIZAR TIMESTAMP
+      if (isRefresh) {
+        setLastUpdated(new Date());
+      }
     } catch (err) {
       console.error('❌ Error in loadOrders:', err);
       setError(err.message);
@@ -120,21 +165,47 @@ const OrderList = () => {
     }
   };
 
+  // ✅ NUEVA FUNCIÓN PARA REFRESCAR MANUALMENTE
+  const handleRefresh = () => {
+    setHasNewOrders(false);
+    loadOrders(true); // isRefresh = true
+  };
+
+  // ✅ NUEVA FUNCIÓN DE REFRESH MANUAL COMPLETO
+  const handleManualRefresh = async () => {
+    try {
+      setLoading(true);
+      setHasNewOrders(false);
+      await loadOrders(true);
+      
+      // Mostrar mensaje de éxito temporal
+      setTimeout(() => {
+        console.log('✅ Lista actualizada correctamente');
+      }, 500);
+    } catch (error) {
+      console.error('Error al actualizar:', error);
+      setError('Error al actualizar la lista');
+    }
+  };
+
   // Manejar cambios en filtros
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
     setPagination(prev => ({ ...prev, currentPage: 1 }));
+    setHasNewOrders(false); // ✅ RESETEAR NOTIFICACIÓN AL FILTRAR
   };
 
   // Manejar cambio de página
   const handlePageChange = (page) => {
     setPagination(prev => ({ ...prev, currentPage: page }));
+    setHasNewOrders(false); // ✅ RESETEAR NOTIFICACIÓN AL CAMBIAR PÁGINA
   };
 
   // Manejar ordenamiento
   const handleSort = (field) => {
     const newOrder = filters.sortBy === field && filters.sortOrder === 'asc' ? 'desc' : 'asc';
     setFilters(prev => ({ ...prev, sortBy: field, sortOrder: newOrder }));
+    setHasNewOrders(false); // ✅ RESETEAR NOTIFICACIÓN AL ORDENAR
   };
 
   // ✅ FUNCIÓN CORREGIDA: Manejar selección de órdenes
@@ -259,8 +330,12 @@ const OrderList = () => {
             <div className="d-flex justify-content-between align-items-center">
               <div>
                 <h2 className="mb-1">📦 Mis Órdenes</h2>
+                {/* ✅ INDICADOR DE ÚLTIMA ACTUALIZACIÓN MEJORADO */}
                 <p className="text-muted mb-0">
                   {pagination.totalOrders} órden{pagination.totalOrders !== 1 ? 'es' : ''} encontrada{pagination.totalOrders !== 1 ? 's' : ''}
+                  <small className="ms-2">
+                    (Última actualización: {lastUpdated.toLocaleTimeString()})
+                  </small>
                 </p>
               </div>
               <div className="d-flex gap-2">
@@ -291,6 +366,19 @@ const OrderList = () => {
                     </Dropdown.Menu>
                   </Dropdown>
                 )}
+                
+                {/* ✅ BOTÓN DE ACTUALIZACIÓN MANUAL */}
+                <Button 
+                  variant="outline-secondary" 
+                  size="sm"
+                  onClick={handleManualRefresh}
+                  disabled={loading}
+                  title="Actualizar lista de órdenes"
+                >
+                  <FaSync className={`me-1 ${loading ? 'fa-spin' : ''}`} />
+                  Actualizar
+                </Button>
+                
                 <Button 
                   variant="primary" 
                   as={Link} 
@@ -304,6 +392,21 @@ const OrderList = () => {
             </div>
           </Col>
         </Row>
+
+        {/* ✅ NOTIFICACIÓN DE NUEVAS ÓRDENES */}
+        {hasNewOrders && (
+          <Alert variant="info" className="mb-3">
+            <div className="d-flex justify-content-between align-items-center">
+              <span>
+                <FaClock className="me-2" />
+                Hay nuevas órdenes disponibles
+              </span>
+              <Button variant="outline-info" size="sm" onClick={handleRefresh}>
+                Ver nuevas órdenes
+              </Button>
+            </div>
+          </Alert>
+        )}
 
         {/* Filtros */}
         <Card className="mb-4">

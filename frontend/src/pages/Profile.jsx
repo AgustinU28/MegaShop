@@ -1,4 +1,4 @@
-// frontend/src/pages/Profile.jsx
+// frontend/src/pages/Profile.jsx - CON DATOS REALES DE LA BASE DE DATOS
 import React, { useState, useEffect } from 'react';
 import { 
   Container, 
@@ -22,14 +22,18 @@ import {
   FaSave,
   FaTimes,
   FaShoppingBag,
-  FaCog
+  FaCog,
+  FaEye
 } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
-// import authService from '../services/authService';
+import { Link } from 'react-router-dom';
+// ✅ IMPORTAR EL SERVICIO DE ÓRDENES
+import orderService from '../services/orderService';
 
 const Profile = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [ordersLoading, setOrdersLoading] = useState(true);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
@@ -49,8 +53,9 @@ const Profile = () => {
     confirmPassword: ''
   });
 
-  // Estados para órdenes recientes (simulado)
+  // ✅ ESTADO PARA ÓRDENES REALES
   const [recentOrders, setRecentOrders] = useState([]);
+  const [ordersError, setOrdersError] = useState(null);
 
   useEffect(() => {
     if (user) {
@@ -62,31 +67,42 @@ const Profile = () => {
       });
     }
     
-    // Simular carga de órdenes recientes
-    setRecentOrders([
-      {
-        id: '12345',
-        date: '2024-01-15',
-        total: 89.99,
-        status: 'Entregado',
-        items: 3
-      },
-      {
-        id: '12344',
-        date: '2024-01-10',
-        total: 129.50,
-        status: 'En camino',
-        items: 2
-      },
-      {
-        id: '12343',
-        date: '2024-01-05',
-        total: 45.00,
-        status: 'Procesando',
-        items: 1
-      }
-    ]);
+    // ✅ CARGAR ÓRDENES REALES AL CARGAR EL COMPONENTE
+    loadUserOrders();
   }, [user]);
+
+  // ✅ FUNCIÓN PARA CARGAR ÓRDENES REALES
+  const loadUserOrders = async () => {
+    try {
+      setOrdersLoading(true);
+      setOrdersError(null);
+      
+      // Obtener las últimas 5 órdenes del usuario
+      const response = await orderService.getAllOrders({
+        page: 1,
+        limit: 5,
+        sortBy: 'createdAt',
+        sortOrder: 'desc'
+      });
+
+      console.log('📦 Orders Response:', response);
+
+      // ✅ ACCESO CORRECTO A LOS DATOS
+      if (response.success && response.data?.data?.orders) {
+        setRecentOrders(response.data.data.orders);
+      } else {
+        setRecentOrders([]);
+        console.warn('⚠️ No orders found in response');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error loading orders:', error);
+      setOrdersError(error.message);
+      setRecentOrders([]);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
 
   const handleProfileChange = (e) => {
     setProfileData({
@@ -152,12 +168,6 @@ const Profile = () => {
       // Simular llamada a la API
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Si tienes authService configurado, usa esto:
-      // const response = await authService.changePassword({
-      //   currentPassword: passwordData.currentPassword,
-      //   newPassword: passwordData.newPassword
-      // });
-      
       setMessage({ type: 'success', text: 'Contraseña cambiada correctamente' });
       setPasswordData({
         currentPassword: '',
@@ -183,14 +193,48 @@ const Profile = () => {
     }
   };
 
+  // ✅ FUNCIÓN MEJORADA PARA OBTENER BADGE DE ESTADO
   const getStatusBadge = (status) => {
     const statusClasses = {
-      'Entregado': 'bg-success',
-      'En camino': 'bg-warning',
-      'Procesando': 'bg-info',
-      'Cancelado': 'bg-danger'
+      'pending': 'bg-warning text-dark',
+      'confirmed': 'bg-info',
+      'processing': 'bg-primary',
+      'shipped': 'bg-warning text-dark',
+      'delivered': 'bg-success',
+      'cancelled': 'bg-danger'
     };
-    return `badge ${statusClasses[status] || 'bg-secondary'}`;
+    
+    const statusTexts = {
+      'pending': 'Pendiente',
+      'confirmed': 'Confirmado', 
+      'processing': 'Procesando',
+      'shipped': 'Enviado',
+      'delivered': 'Entregado',
+      'cancelled': 'Cancelado'
+    };
+
+    return {
+      className: `badge ${statusClasses[status] || 'bg-secondary'}`,
+      text: statusTexts[status] || status
+    };
+  };
+
+  // ✅ FUNCIÓN PARA FORMATEAR FECHA
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('es-AR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+  };
+
+  // ✅ FUNCIÓN PARA FORMATEAR PRECIO
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS'
+    }).format(price);
   };
 
   return (
@@ -392,17 +436,39 @@ const Profile = () => {
                 </Card>
               </Tab.Pane>
 
-              {/* Tab de Órdenes */}
+              {/* ✅ TAB DE ÓRDENES CON DATOS REALES */}
               <Tab.Pane eventKey="orders">
                 <Card>
-                  <Card.Header>
+                  <Card.Header className="d-flex justify-content-between align-items-center">
                     <h5 className="mb-0">
                       <FaShoppingBag className="me-2" />
                       Órdenes Recientes
                     </h5>
+                    <Link to="/orders" className="btn btn-outline-primary btn-sm">
+                      Ver Todas
+                    </Link>
                   </Card.Header>
                   <Card.Body>
-                    {recentOrders.length > 0 ? (
+                    {ordersLoading ? (
+                      <div className="text-center py-4">
+                        <Spinner animation="border" role="status">
+                          <span className="visually-hidden">Cargando órdenes...</span>
+                        </Spinner>
+                        <p className="mt-2 text-muted">Cargando órdenes...</p>
+                      </div>
+                    ) : ordersError ? (
+                      <Alert variant="danger">
+                        <strong>Error:</strong> {ordersError}
+                        <Button 
+                          variant="outline-danger" 
+                          size="sm" 
+                          className="ms-2"
+                          onClick={loadUserOrders}
+                        >
+                          Reintentar
+                        </Button>
+                      </Alert>
+                    ) : recentOrders.length > 0 ? (
                       <div className="table-responsive">
                         <table className="table table-hover">
                           <thead>
@@ -416,28 +482,35 @@ const Profile = () => {
                             </tr>
                           </thead>
                           <tbody>
-                            {recentOrders.map(order => (
-                              <tr key={order.id}>
-                                <td>#{order.id}</td>
-                                <td>{order.date}</td>
-                                <td>{order.items} artículo(s)</td>
-                                <td>${order.total.toFixed(2)}</td>
-                                <td>
-                                  <span className={getStatusBadge(order.status)}>
-                                    {order.status}
-                                  </span>
-                                </td>
-                                <td>
-                                  <Button 
-                                    variant="outline-primary" 
-                                    size="sm"
-                                    href={`/orders/${order.id}`}
-                                  >
-                                    Ver Detalles
-                                  </Button>
-                                </td>
-                              </tr>
-                            ))}
+                            {recentOrders.map(order => {
+                              const statusBadge = getStatusBadge(order.status);
+                              return (
+                                <tr key={order._id}>
+                                  <td>
+                                    <strong>#{order.orderNumber}</strong>
+                                  </td>
+                                  <td>{formatDate(order.createdAt)}</td>
+                                  <td>{order.items?.length || 0} artículo(s)</td>
+                                  <td>
+                                    <strong>{formatPrice(order.pricing?.total || 0)}</strong>
+                                  </td>
+                                  <td>
+                                    <span className={statusBadge.className}>
+                                      {statusBadge.text}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <Link 
+                                      to={`/orders/${order._id}`}
+                                      className="btn btn-outline-primary btn-sm"
+                                    >
+                                      <FaEye className="me-1" />
+                                      Ver Detalles
+                                    </Link>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -445,9 +518,9 @@ const Profile = () => {
                       <div className="text-center py-4">
                         <FaShoppingBag size={50} className="text-muted mb-3" />
                         <p className="text-muted">No tienes órdenes recientes</p>
-                        <Button variant="primary" href="/shop">
+                        <Link to="/shop" className="btn btn-primary">
                           Ir a la Tienda
-                        </Button>
+                        </Link>
                       </div>
                     )}
                   </Card.Body>
