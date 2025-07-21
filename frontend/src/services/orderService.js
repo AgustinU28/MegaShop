@@ -1,4 +1,5 @@
-// frontend/src/services/orderService.js - Archivo completo actualizado
+// frontend/src/services/orderService.js - Con apertura en nueva ventana
+
 import api from './api';
 
 class OrderService {
@@ -122,7 +123,7 @@ class OrderService {
   // ====== MÉTODOS DE DESCARGA Y EXPORTACIÓN - ACTUALIZADOS ======
 
   /**
-   * Descargar factura de una orden como PDF
+   * Descargar factura de una orden como PDF - NUEVA VERSIÓN QUE ABRE EN VENTANA
    * @param {string|number} orderId - ID de la orden
    */
   async downloadInvoice(orderId) {
@@ -133,12 +134,49 @@ class OrderService {
 
       console.log('📄 Downloading invoice for order:', orderId);
 
+      // ✅ CAMBIO: responseType blob configurado correctamente
       const response = await api.get(`/orders/${orderId}/invoice`, {
         responseType: 'blob'
       });
 
-      // Crear y descargar el archivo
+      // ✅ CAMBIO: En lugar de hacer download automático, abrir en nueva ventana
       const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      
+      // ✅ NUEVA FUNCIONALIDAD: Abrir PDF en nueva pestaña
+      const newWindow = window.open(url, '_blank');
+      
+      // Verificar si la ventana se abrió correctamente
+      if (!newWindow) {
+        // Si no se puede abrir en nueva ventana (por bloqueo de popups), hacer download
+        console.log('⚠️ Popup blocked, falling back to download');
+        this.fallbackDownload(blob, orderId);
+      } else {
+        // Opcional: cerrar la URL después de un tiempo para liberar memoria
+        setTimeout(() => {
+          window.URL.revokeObjectURL(url);
+        }, 10000); // 10 segundos
+      }
+
+      console.log('✅ Invoice opened in new window successfully');
+      
+      return {
+        success: true,
+        message: 'Factura abierta en nueva ventana'
+      };
+    } catch (error) {
+      console.error('❌ Error opening invoice:', error);
+      throw new Error(error.response?.data?.message || 'Error al abrir la factura');
+    }
+  }
+
+  /**
+   * Método de respaldo para descargar si no se puede abrir en ventana
+   * @param {Blob} blob - Blob del PDF
+   * @param {string} orderId - ID de la orden
+   */
+  fallbackDownload(blob, orderId) {
+    try {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -155,7 +193,31 @@ class OrderService {
       // Limpiar URL del objeto
       window.URL.revokeObjectURL(url);
 
-      console.log('✅ Invoice downloaded successfully');
+      console.log('✅ Invoice downloaded as fallback');
+    } catch (error) {
+      console.error('❌ Error in fallback download:', error);
+    }
+  }
+
+  /**
+   * Método alternativo: Forzar descarga (mantener funcionalidad original)
+   * @param {string|number} orderId - ID de la orden
+   */
+  async forceDownloadInvoice(orderId) {
+    try {
+      if (!orderId) {
+        throw new Error('ID de orden requerido');
+      }
+
+      console.log('📄 Force downloading invoice for order:', orderId);
+
+      const response = await api.get(`/orders/${orderId}/invoice`, {
+        responseType: 'blob'
+      });
+
+      // Forzar descarga directa
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      this.fallbackDownload(blob, orderId);
       
       return {
         success: true,
@@ -255,12 +317,8 @@ class OrderService {
     }
   }
 
-  // ====== MÉTODOS DE SEGUIMIENTO ======
+  // ====== RESTO DE MÉTODOS (sin cambios) ======
 
-  /**
-   * Obtener información de seguimiento de una orden
-   * @param {string|number} orderId - ID de la orden
-   */
   async getOrderTracking(orderId) {
     try {
       if (!orderId) {
@@ -278,11 +336,6 @@ class OrderService {
     }
   }
 
-  /**
-   * Actualizar información de seguimiento
-   * @param {string|number} orderId - ID de la orden
-   * @param {Object} trackingData - Datos de seguimiento
-   */
   async updateOrderTracking(orderId, trackingData) {
     try {
       if (!orderId || !trackingData) {
@@ -300,11 +353,6 @@ class OrderService {
     }
   }
 
-  // ====== MÉTODOS DE ESTADÍSTICAS ======
-
-  /**
-   * Obtener estadísticas de órdenes del usuario
-   */
   async getOrderStats() {
     try {
       const response = await api.get('/orders/stats');
@@ -318,10 +366,6 @@ class OrderService {
     }
   }
 
-  /**
-   * Obtener resumen de gastos por período
-   * @param {string} period - Período (month, quarter, year)
-   */
   async getSpendingSummary(period = 'month') {
     try {
       const response = await api.get(`/orders/spending-summary?period=${period}`);
@@ -335,12 +379,6 @@ class OrderService {
     }
   }
 
-  // ====== MÉTODOS DE VALIDACIÓN ======
-
-  /**
-   * Verificar si una orden puede ser cancelada
-   * @param {string|number} orderId - ID de la orden
-   */
   async canCancelOrder(orderId) {
     try {
       if (!orderId) {
@@ -358,10 +396,6 @@ class OrderService {
     }
   }
 
-  /**
-   * Verificar disponibilidad de productos en una orden
-   * @param {Array} items - Items a verificar
-   */
   async checkProductAvailability(items) {
     try {
       if (!items || items.length === 0) {
@@ -379,11 +413,6 @@ class OrderService {
     }
   }
 
-  // ====== MÉTODOS AUXILIARES ======
-
-  /**
-   * Obtener estados de orden disponibles
-   */
   async getOrderStatuses() {
     try {
       const response = await api.get('/orders/statuses');
@@ -393,7 +422,6 @@ class OrderService {
         message: 'Estados obtenidos exitosamente'
       };
     } catch (error) {
-      // Fallback con estados predefinidos
       return {
         success: true,
         data: [
@@ -409,11 +437,6 @@ class OrderService {
     }
   }
 
-  /**
-   * Calcular totales de una orden
-   * @param {Array} items - Items de la orden
-   * @param {Object} options - Opciones adicionales
-   */
   calculateOrderTotals(items, options = {}) {
     try {
       if (!items || items.length === 0) {
@@ -433,18 +456,14 @@ class OrderService {
 
       const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
       
-      // IVA 21% (configurable)
       const taxRate = options.taxRate || 0.21;
       const tax = subtotal * taxRate;
       
-      // Envío gratis para compras mayores a $50,000
       const freeShippingThreshold = options.freeShippingThreshold || 50000;
       const shippingCost = options.shippingCost || 2500;
       const shipping = subtotal >= freeShippingThreshold ? 0 : shippingCost;
       
-      // Descuento
       const discount = options.discount || 0;
-      
       const total = subtotal + tax + shipping - discount;
 
       return {
@@ -468,10 +487,6 @@ class OrderService {
     }
   }
 
-  /**
-   * Formatear precio para mostrar
-   * @param {number} price - Precio a formatear
-   */
   formatPrice(price) {
     return new Intl.NumberFormat('es-AR', {
       style: 'currency',
@@ -480,10 +495,6 @@ class OrderService {
     }).format(price || 0);
   }
 
-  /**
-   * Formatear fecha para mostrar
-   * @param {string|Date} date - Fecha a formatear
-   */
   formatDate(date) {
     if (!date) return '';
     
@@ -496,10 +507,6 @@ class OrderService {
     });
   }
 
-  /**
-   * Obtener configuración de estado con colores e iconos
-   * @param {string} status - Estado de la orden
-   */
   getStatusConfig(status) {
     const statusConfigs = {
       pending: { 

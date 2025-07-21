@@ -1,8 +1,9 @@
-// backend/routes/orders.js - Archivo completo y funcional
+// backend/routes/orders.js - ARCHIVO COMPLETO Y FUNCIONAL
 const express = require('express');
 const router = express.Router();
 const { auth, optionalAuth } = require('../middleware/auth');
 const Order = require('../models/Order');
+const puppeteer = require('puppeteer');
 
 // @route   GET /api/orders/test
 // @desc    Test orders routes
@@ -115,7 +116,142 @@ router.get('/', auth, async (req, res) => {
     });
   }
 });
+// Reemplaza SOLO la ruta /:id/invoice en tu routes/orders.js
 
+// @route   GET /api/orders/:id/invoice
+// @desc    Download order invoice as PDF - FIXED VALIDATION
+// @access  Private
+router.get('/:id/invoice', auth, async (req, res) => {
+  let browser;
+  try {
+    console.log('📄 Generating invoice for order:', req.params.id);
+
+    const order = await Order.findById(req.params.id)
+      .populate('items.product', 'title image code category brand')
+      .populate('user', 'name email');
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Orden no encontrada'
+      });
+    }
+
+    console.log('✅ Order found:', order.orderNumber);
+
+    // Verificar permisos
+    let orderUserId = null;
+    if (order.user) {
+      orderUserId = typeof order.user === 'object' ? order.user._id.toString() : order.user.toString();
+    }
+    
+    const requestingUserId = req.user.id.toString();
+    const isAdmin = req.user.role === 'admin';
+
+    if (order.user && orderUserId !== requestingUserId && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'No tienes permiso para descargar esta factura'
+      });
+    }
+
+    console.log('✅ Permission granted, generating PDF...');
+
+    // Usar la función existente
+    const simpleHTML = generateSimpleInvoiceHTML(order);
+    console.log('✅ HTML generated using existing function');
+
+    // Puppeteer con configuración robusta
+    console.log('🔄 Launching browser...');
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run'
+      ]
+    });
+
+    console.log('✅ Browser launched');
+    const page = await browser.newPage();
+    
+    // Configurar página
+    await page.setViewport({ width: 1200, height: 800 });
+    
+    console.log('🔄 Setting HTML content...');
+    await page.setContent(simpleHTML, { 
+      waitUntil: 'networkidle0',
+      timeout: 15000 
+    });
+
+    console.log('🔄 Generating PDF...');
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '15mm',
+        right: '15mm',
+        bottom: '15mm',
+        left: '15mm'
+      },
+      preferCSSPageSize: false
+    });
+
+    console.log('✅ PDF generated successfully');
+    console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
+
+    await browser.close();
+    console.log('✅ Browser closed');
+
+    // ✅ VALIDACIONES SIMPLIFICADAS - SIN VERIFICAR FIRMA
+    if (!pdfBuffer) {
+      throw new Error('PDF buffer is null');
+    }
+
+    if (pdfBuffer.length === 0) {
+      throw new Error('PDF buffer is empty (0 bytes)');
+    }
+
+    if (pdfBuffer.length < 500) {
+      console.warn('⚠️ PDF seems very small:', pdfBuffer.length, 'bytes');
+    }
+
+    console.log('✅ PDF validation passed - size is good');
+
+    // Headers para descarga
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="factura-${order.orderNumber}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    console.log('✅ Sending PDF response');
+    res.send(pdfBuffer);
+
+  } catch (error) {
+    console.error('❌ Error generating PDF:', error.message);
+    console.error('❌ Full error:', error);
+    
+    if (browser) {
+      try {
+        await browser.close();
+        console.log('✅ Browser closed after error');
+      } catch (closeError) {
+        console.error('❌ Error closing browser:', closeError.message);
+      }
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error al generar la factura PDF',
+      error: error.message,
+      details: 'Revisa los logs del servidor para más información'
+    });
+  }
+});
 // @route   GET /api/orders/:id
 // @desc    Get single order by ID
 // @access  Private
@@ -143,16 +279,13 @@ router.get('/:id', auth, async (req, res) => {
       requestingUserId: req.user.id
     });
 
-    // ✅ VERIFICACIÓN CORREGIDA: Obtener el ID del usuario correctamente
+    // Verificación de permisos
     let orderUserId = null;
     
     if (order.user) {
-      // Si order.user es un objeto poblado, obtener el _id
       if (typeof order.user === 'object' && order.user._id) {
         orderUserId = order.user._id.toString();
-      } 
-      // Si order.user es solo un ObjectId
-      else {
+      } else {
         orderUserId = order.user.toString();
       }
     }
@@ -168,13 +301,8 @@ router.get('/:id', auth, async (req, res) => {
       canAccess: isAdmin || orderUserId === requestingUserId || !order.user
     });
 
-    // Permitir acceso si:
-    // 1. Es admin
-    // 2. Es el dueño de la orden
-    // 3. La orden no tiene usuario asignado (orden de invitado)
     if (order.user && orderUserId !== requestingUserId && !isAdmin) {
       console.log('❌ Access denied - User not owner of order');
-      console.log('❌ Comparison failed:', { orderUserId, requestingUserId, equal: orderUserId === requestingUserId });
       return res.status(403).json({
         success: false,
         message: 'No tienes permiso para ver esta orden'
@@ -207,7 +335,7 @@ router.get('/number/:orderNumber', async (req, res) => {
 
     const order = await Order.findOne({ orderNumber: req.params.orderNumber })
       .populate('items.product', 'title image code')
-      .select('-payment.paymentIntentId -payment.transactionId'); // Ocultar info sensible
+      .select('-payment.paymentIntentId -payment.transactionId');
 
     if (!order) {
       console.log('❌ Order not found by number');
@@ -243,7 +371,6 @@ router.patch('/:id/status', auth, async (req, res) => {
 
     console.log('🔄 Updating order status:', { orderId: req.params.id, status, user: req.user.role });
 
-    // Solo admins pueden cambiar estado de órdenes
     if (req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -332,38 +459,161 @@ router.patch('/:id/cancel', auth, async (req, res) => {
   }
 });
 
-// @route   GET /api/orders/stats/summary
-// @desc    Get orders statistics
-// @access  Private/Admin
-router.get('/stats/summary', auth, async (req, res) => {
-  try {
-    console.log('📊 Getting order stats for user:', req.user.role);
+// FUNCIÓN SIMPLIFICADA PARA GENERAR HTML
+function generateSimpleInvoiceHTML(order) {
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS'
+    }).format(price || 0);
+  };
 
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'No tienes permiso para ver estadísticas'
-      });
-    }
+  const formatDate = (date) => {
+    return new Date(date).toLocaleDateString('es-AR');
+  };
 
-    const stats = await Order.getStats();
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Factura - ${order.orderNumber}</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          margin: 20px;
+          font-size: 14px;
+          color: #333;
+        }
+        .header {
+          text-align: center;
+          margin-bottom: 30px;
+          border-bottom: 2px solid #007bff;
+          padding-bottom: 15px;
+        }
+        .company-name {
+          font-size: 24px;
+          color: #007bff;
+          font-weight: bold;
+          margin-bottom: 10px;
+        }
+        .invoice-info {
+          background: #f8f9fa;
+          padding: 15px;
+          margin-bottom: 20px;
+          border-radius: 5px;
+        }
+        .customer-info {
+          margin-bottom: 20px;
+        }
+        .customer-info h3 {
+          color: #007bff;
+          margin-bottom: 10px;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 20px;
+        }
+        th {
+          background: #007bff;
+          color: white;
+          padding: 10px;
+          text-align: left;
+        }
+        td {
+          padding: 10px;
+          border-bottom: 1px solid #ddd;
+        }
+        .text-right {
+          text-align: right;
+        }
+        .totals {
+          margin-top: 20px;
+          text-align: right;
+        }
+        .total-row {
+          background: #007bff;
+          color: white;
+          font-weight: bold;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="company-name">UriShop</div>
+        <p>Tienda de Gaming & Tecnología</p>
+      </div>
 
-    console.log('✅ Order stats retrieved');
+      <div class="invoice-info">
+        <h2>FACTURA N° ${order.orderNumber}</h2>
+        <p><strong>Fecha:</strong> ${formatDate(order.createdAt)}</p>
+        <p><strong>Estado:</strong> ${order.status.toUpperCase()}</p>
+      </div>
 
-    res.json({
-      success: true,
-      data: stats
-    });
+      <div class="customer-info">
+        <h3>Información del Cliente</h3>
+        <p><strong>Nombre:</strong> ${order.customer.firstName} ${order.customer.lastName}</p>
+        <p><strong>Email:</strong> ${order.customer.email}</p>
+        <p><strong>Teléfono:</strong> ${order.customer.phone}</p>
+      </div>
 
-  } catch (error) {
-    console.error('❌ Error getting order stats:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener estadísticas',
-      error: error.message
-    });
-  }
-});
+      <div class="customer-info">
+        <h3>Dirección de Envío</h3>
+        <p>${order.shipping.address}</p>
+        <p>${order.shipping.city}, ${order.shipping.state} ${order.shipping.postalCode}</p>
+        <p>${order.shipping.country}</p>
+      </div>
 
-// ✅ CRÍTICO: Exportar el router
+      <table>
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th class="text-right">Cantidad</th>
+            <th class="text-right">Precio</th>
+            <th class="text-right">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${order.items.map(item => `
+            <tr>
+              <td>${item.title}</td>
+              <td class="text-right">${item.quantity}</td>
+              <td class="text-right">${formatPrice(item.price)}</td>
+              <td class="text-right">${formatPrice(item.subtotal)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+
+      <div class="totals">
+        <table style="width: 300px; margin-left: auto;">
+          <tr>
+            <td><strong>Subtotal:</strong></td>
+            <td class="text-right">${formatPrice(order.pricing.subtotal)}</td>
+          </tr>
+          <tr>
+            <td><strong>IVA (21%):</strong></td>
+            <td class="text-right">${formatPrice(order.pricing.tax)}</td>
+          </tr>
+          <tr>
+            <td><strong>Envío:</strong></td>
+            <td class="text-right">${order.pricing.shipping > 0 ? formatPrice(order.pricing.shipping) : 'GRATIS'}</td>
+          </tr>
+          <tr class="total-row">
+            <td><strong>TOTAL:</strong></td>
+            <td class="text-right"><strong>${formatPrice(order.pricing.total)}</strong></td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="margin-top: 30px; text-align: center; color: #666;">
+        <p>Gracias por tu compra en UriShop</p>
+        <p>Orden: ${order.orderNumber} - Generado: ${formatDate(new Date())}</p>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
 module.exports = router;

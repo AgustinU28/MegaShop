@@ -1,4 +1,4 @@
-// backend/server.js
+// backend/server.js - FIXED VERSION QUE SÍ CARGA ÓRDENES
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -70,12 +70,7 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/favicon.ico', (req, res) => {
-  res.status(204).end(); // No Content - evita el error 404
-});
-
-// O si quieres servir un favicon real:
-app.get('/favicon.ico', (req, res) => {
-  res.redirect('https://cdn-icons-png.flaticon.com/32/3712/3712200.png');
+  res.status(204).end();
 });
 
 app.get('/api/test', (req, res) => {
@@ -85,48 +80,84 @@ app.get('/api/test', (req, res) => {
   });
 });
 
-// 🔗 Importar y registrar TODAS las rutas
+// 🔗 CARGAR TODAS LAS RUTAS
+console.log('🔄 Starting to load all routes...');
+
+// Products
 try {
   const productRoutes = require('./routes/products');
   app.use('/api/products', productRoutes);
   console.log('✅ Product routes loaded');
 } catch (err) {
-  console.log('⚠️ Product routes not loaded:', err.message);
+  console.error('❌ Product routes error:', err.message);
 }
 
+// Carts
 try {
   const cartRoutes = require('./routes/cart');
   app.use('/api/carts', cartRoutes);
   console.log('✅ Cart routes loaded');
 } catch (err) {
-  console.log('⚠️ Cart routes not loaded:', err.message);
+  console.error('❌ Cart routes error:', err.message);
 }
 
+// Auth
 try {
   const authRoutes = require('./routes/auth');
   app.use('/api/auth', authRoutes);
   console.log('✅ Auth routes loaded');
 } catch (err) {
-  console.log('⚠️ Auth routes not loaded:', err.message);
+  console.error('❌ Auth routes error:', err.message);
 }
 
+// 🚨 ÓRDENES - LA PARTE CRÍTICA
+console.log('🔄 Loading ORDER ROUTES - CRITICAL...');
 try {
+  console.log('📁 Checking if routes/orders.js exists...');
+  
+  const fs = require('fs');
+  const path = require('path');
+  const orderFilePath = path.join(__dirname, 'routes', 'orders.js');
+  
+  if (!fs.existsSync(orderFilePath)) {
+    console.error('❌ ERROR: routes/orders.js file does not exist!');
+    console.error('❌ File path checked:', orderFilePath);
+    throw new Error('orders.js file not found');
+  }
+  
+  console.log('✅ orders.js file exists, attempting to require...');
   const orderRoutes = require('./routes/orders');
+  
+  if (typeof orderRoutes !== 'function') {
+    console.error('❌ ERROR: orders.js does not export a router function');
+    console.error('❌ Exported type:', typeof orderRoutes);
+    throw new Error('Invalid router export');
+  }
+  
+  console.log('✅ orders.js loaded successfully, mounting routes...');
   app.use('/api/orders', orderRoutes);
-  console.log('✅ Order routes loaded');
+  
+  console.log('🎉 ORDER ROUTES LOADED SUCCESSFULLY!');
+  console.log('🎉 You should now be able to access /api/orders');
+  
 } catch (err) {
-  console.log('⚠️ Order routes not loaded:', err.message);
+  console.error('❌ CRITICAL ERROR loading order routes:');
+  console.error('❌ Error message:', err.message);
+  console.error('❌ Stack trace:', err.stack);
+  console.error('❌ This is why /api/orders returns 404');
+  console.error('❌ Fix this error to resolve the 404 issue');
 }
 
+// Payments
 try {
   const paymentRoutes = require('./routes/payments');
   app.use('/api/payments', paymentRoutes);
   console.log('✅ Payment routes loaded');
 } catch (err) {
-  console.log('⚠️ Payment routes not loaded:', err.message);
+  console.error('❌ Payment routes error:', err.message);
 }
 
-// 🔍 Estadísticas de base de datos
+// 🔍 Estadísticas
 app.get('/api/stats', async (req, res) => {
   try {
     const Product = require('./models/Product');
@@ -160,9 +191,11 @@ app.get('/api/stats', async (req, res) => {
 
 // 404 handler
 app.use('*', (req, res) => {
+  console.log(`❌ 404 - Route not found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ 
     success: false,
-    message: `Endpoint no encontrado: ${req.method} ${req.originalUrl}`
+    message: `Endpoint no encontrado: ${req.method} ${req.originalUrl}`,
+    hint: 'Check server logs for route loading errors'
   });
 });
 
@@ -181,6 +214,14 @@ app.listen(PORT, () => {
   console.log(`🔧 API test: http://localhost:${PORT}/api/test`);
   console.log(`📦 Products: http://localhost:${PORT}/api/products`);
   console.log(`🛒 Carts: http://localhost:${PORT}/api/carts`);
+  console.log(`🔐 Auth: http://localhost:${PORT}/api/auth`);
+  console.log(`📋 Orders: http://localhost:${PORT}/api/orders`);
+  console.log(`💳 Payments: http://localhost:${PORT}/api/payments`);
+  console.log('');
+  console.log('📋 ORDERS STATUS CHECK:');
+  console.log('- Look for "🎉 ORDER ROUTES LOADED SUCCESSFULLY!" above');
+  console.log('- If not present, check the error details');
+  console.log('- Test: http://localhost:${PORT}/api/orders/test');
 });
 
 module.exports = app;
