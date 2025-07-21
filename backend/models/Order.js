@@ -1,269 +1,289 @@
-// backend/models/Order.js
-const mongoose = require('mongoose');
+// backend/routes/orders.js - Agregar estos endpoints para facturas
 
-const orderItemSchema = new mongoose.Schema({
-  product: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Product',
-    required: true
-  },
-  productId: {
-    type: Number,
-    required: true
-  },
-  title: {
-    type: String,
-    required: true
-  },
-  price: {
-    type: Number,
-    required: true,
-    min: [0, 'El precio no puede ser negativo']
-  },
-  quantity: {
-    type: Number,
-    required: true,
-    min: [1, 'La cantidad debe ser al menos 1']
-  },
-  subtotal: {
-    type: Number,
-    required: true
-  },
-  image: {
-    type: String
-  }
-}, {
-  _id: false
-});
+// Instalar las dependencias necesarias:
+// npm install puppeteer html-pdf-node
 
-const orderSchema = new mongoose.Schema({
-  orderNumber: {
-    type: String,
-    required: true,
-    unique: true
-  },
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  },
-  customer: {
-    firstName: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    lastName: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    email: {
-      type: String,
-      required: true,
-      trim: true,
-      lowercase: true
-    },
-    phone: {
-      type: String,
-      required: true,
-      trim: true
+const puppeteer = require('puppeteer');
+
+// @route   GET /api/orders/:id/invoice
+// @desc    Download order invoice as PDF
+// @access  Private
+router.get('/:id/invoice', auth, async (req, res) => {
+  try {
+    console.log('📄 Generating invoice for order:', req.params.id);
+
+    const order = await Order.findById(req.params.id)
+      .populate('items.product', 'title image code category brand')
+      .populate('user', 'name email');
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Orden no encontrada'
+      });
     }
-  },
-  shipping: {
-    address: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    city: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    state: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    zipCode: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    instructions: {
-      type: String,
-      trim: true
-    },
-    country: {
-      type: String,
-      default: 'Argentina'
-    }
-  },
-  items: [orderItemSchema],
-  pricing: {
-    subtotal: {
-      type: Number,
-      required: true,
-      min: [0, 'El subtotal no puede ser negativo']
-    },
-    tax: {
-      type: Number,
-      default: 0,
-      min: [0, 'Los impuestos no pueden ser negativos']
-    },
-    shipping: {
-      type: Number,
-      default: 0,
-      min: [0, 'El costo de envío no puede ser negativo']
-    },
-    total: {
-      type: Number,
-      required: true,
-      min: [0, 'El total no puede ser negativo']
-    }
-  },
-  payment: {
-    method: {
-      type: String,
-      default: 'stripe'
-    },
-    status: {
-      type: String,
-      enum: ['pending', 'processing', 'completed', 'failed', 'refunded'],
-      default: 'pending'
-    },
-    paymentIntentId: {
-      type: String
-    },
-    transactionId: {
-      type: String
-    },
-    currency: {
-      type: String,
-      default: 'USD'
-    },
-    paidAt: {
-      type: Date
-    }
-  },
-  status: {
-    type: String,
-    enum: ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded'],
-    default: 'pending'
-  },
-  timeline: [{
-    status: {
-      type: String,
-      required: true
-    },
-    message: {
-      type: String,
-      required: true
-    },
-    timestamp: {
-      type: Date,
-      default: Date.now
-    },
-    updatedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    }
-  }],
-  tracking: {
-    carrier: {
-      type: String
-    },
-    trackingNumber: {
-      type: String
-    },
-    trackingUrl: {
-      type: String
-    },
-    estimatedDelivery: {
-      type: Date
-    }
-  },
-  notes: {
-    type: String,
-    maxlength: [500, 'Las notas no pueden exceder 500 caracteres']
-  }
-}, {
-  timestamps: true,
-  toJSON: { virtuals: true },
-  toObject: { virtuals: true }
-});
 
-// Virtuals
-orderSchema.virtual('totalItems').get(function() {
-  return this.items.reduce((total, item) => total + item.quantity, 0);
-});
-
-orderSchema.virtual('customerFullName').get(function() {
-  return `${this.customer.firstName} ${this.customer.lastName}`;
-});
-
-// Índices
-orderSchema.index({ orderNumber: 1 });
-orderSchema.index({ user: 1 });
-orderSchema.index({ status: 1 });
-orderSchema.index({ 'payment.status': 1 });
-orderSchema.index({ createdAt: -1 });
-orderSchema.index({ 'customer.email': 1 });
-
-// Middleware para generar número de orden automáticamente
-orderSchema.pre('save', async function(next) {
-  if (this.isNew && !this.orderNumber) {
-    const timestamp = Date.now().toString();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    this.orderNumber = `ORD-${timestamp.slice(-6)}${random}`;
-  }
-  next();
-});
-
-// Método para actualizar estado con timeline
-orderSchema.methods.updateStatus = function(newStatus, message, updatedBy = null) {
-  this.status = newStatus;
-  this.timeline.push({
-    status: newStatus,
-    message: message || `Estado actualizado a ${newStatus}`,
-    timestamp: new Date(),
-    updatedBy: updatedBy
-  });
-  
-  // Actualizar estado de pago si corresponde
-  if (newStatus === 'confirmed') {
-    this.payment.status = 'completed';
-    this.payment.paidAt = new Date();
-  } else if (newStatus === 'cancelled') {
-    this.payment.status = 'failed';
-  }
-  
-  return this.save();
-};
-
-// Método estático para obtener estadísticas
-orderSchema.statics.getStats = async function() {
-  const stats = await this.aggregate([
-    {
-      $group: {
-        _id: '$status',
-        count: { $sum: 1 },
-        totalAmount: { $sum: '$pricing.total' }
+    // Verificar permisos (misma lógica que GET /:id)
+    let orderUserId = null;
+    if (order.user) {
+      if (typeof order.user === 'object' && order.user._id) {
+        orderUserId = order.user._id.toString();
+      } else {
+        orderUserId = order.user.toString();
       }
     }
-  ]);
-  
-  const totalOrders = await this.countDocuments();
-  const totalRevenue = await this.aggregate([
-    { $match: { status: { $in: ['confirmed', 'processing', 'shipped', 'delivered'] } } },
-    { $group: { _id: null, total: { $sum: '$pricing.total' } } }
-  ]);
-  
-  return {
-    totalOrders,
-    totalRevenue: totalRevenue[0]?.total || 0,
-    byStatus: stats
-  };
-};
+    
+    const requestingUserId = req.user.id.toString();
+    const isAdmin = req.user.role === 'admin';
 
-module.exports = mongoose.model('Order', orderSchema);
+    if (order.user && orderUserId !== requestingUserId && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'No tienes permiso para descargar esta factura'
+      });
+    }
+
+    // Generar HTML de la factura
+    const invoiceHTML = generateInvoiceHTML(order);
+
+    // Configurar Puppeteer
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+
+    const page = await browser.newPage();
+    await page.setContent(invoiceHTML, { waitUntil: 'networkidle0' });
+
+    // Generar PDF
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      margin: {
+        top: '20mm',
+        right: '15mm',
+        bottom: '20mm',
+        left: '15mm'
+      },
+      printBackground: true
+    });
+
+    await browser.close();
+
+    // Configurar headers para descarga
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="factura-${order.orderNumber}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+
+    console.log('✅ Invoice PDF generated successfully');
+    res.send(pdfBuffer);
+
+  } catch (error) {
+    console.error('❌ Error generating invoice:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al generar la factura',
+      error: error.message
+    });
+  }
+});
+
+// Función para generar el HTML de la factura
+function generateInvoiceHTML(order) {
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS'
+    }).format(price || 0);
+  };
+
+  const formatDate = (date) => {
+    return new Date(date).toLocaleDateString('es-AR', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Factura - ${order.orderNumber}</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          margin: 0;
+          padding: 20px;
+          color: #333;
+        }
+        .header {
+          text-align: center;
+          border-bottom: 2px solid #007bff;
+          padding-bottom: 20px;
+          margin-bottom: 30px;
+        }
+        .company-name {
+          font-size: 28px;
+          font-weight: bold;
+          color: #007bff;
+          margin-bottom: 5px;
+        }
+        .invoice-title {
+          font-size: 24px;
+          margin: 20px 0;
+        }
+        .invoice-info {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 30px;
+        }
+        .info-section {
+          flex: 1;
+          margin-right: 20px;
+        }
+        .info-section h3 {
+          border-bottom: 1px solid #ddd;
+          padding-bottom: 5px;
+          color: #007bff;
+        }
+        .items-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 30px;
+        }
+        .items-table th {
+          background-color: #f8f9fa;
+          border: 1px solid #ddd;
+          padding: 12px;
+          text-align: left;
+        }
+        .items-table td {
+          border: 1px solid #ddd;
+          padding: 12px;
+        }
+        .text-right {
+          text-align: right;
+        }
+        .total-section {
+          float: right;
+          width: 300px;
+          margin-top: 20px;
+        }
+        .total-row {
+          display: flex;
+          justify-content: space-between;
+          padding: 8px 0;
+          border-bottom: 1px solid #eee;
+        }
+        .total-final {
+          font-weight: bold;
+          font-size: 18px;
+          border-bottom: 2px solid #007bff;
+          color: #007bff;
+        }
+        .footer {
+          margin-top: 50px;
+          text-align: center;
+          font-size: 12px;
+          color: #666;
+          border-top: 1px solid #eee;
+          padding-top: 20px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="company-name">🛍️ UriShop</div>
+        <div>Tu tienda de confianza</div>
+      </div>
+
+      <div class="invoice-title">
+        <h1>FACTURA - ${order.orderNumber}</h1>
+      </div>
+
+      <div class="invoice-info">
+        <div class="info-section">
+          <h3>Información de la Empresa</h3>
+          <p><strong>UriShop</strong><br>
+          Dirección: Don Bosco 186<br>
+          Ciudad: Bahía Blanca, Buenos Aires<br>
+          CP: 8000<br>
+          País: Argentina</p>
+        </div>
+
+        <div class="info-section">
+          <h3>Facturar a</h3>
+          <p><strong>${order.customer.firstName} ${order.customer.lastName}</strong><br>
+          Email: ${order.customer.email}<br>
+          Teléfono: ${order.customer.phone}</p>
+        </div>
+
+        <div class="info-section">
+          <h3>Detalles de la Factura</h3>
+          <p><strong>Número:</strong> ${order.orderNumber}<br>
+          <strong>Fecha:</strong> ${formatDate(order.createdAt)}<br>
+          <strong>Estado:</strong> ${order.status}<br>
+          <strong>Método de Pago:</strong> ${order.payment.method}</p>
+        </div>
+      </div>
+
+      <div class="info-section">
+        <h3>Dirección de Envío</h3>
+        <p>${order.shipping.address}<br>
+        ${order.shipping.city}, ${order.shipping.state}<br>
+        CP: ${order.shipping.zipCode}<br>
+        ${order.shipping.country}</p>
+      </div>
+
+      <table class="items-table">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Código</th>
+            <th class="text-right">Cantidad</th>
+            <th class="text-right">Precio Unitario</th>
+            <th class="text-right">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${order.items.map(item => `
+            <tr>
+              <td>${item.product?.title || item.title}</td>
+              <td>${item.product?.code || item.productId}</td>
+              <td class="text-right">${item.quantity}</td>
+              <td class="text-right">${formatPrice(item.price)}</td>
+              <td class="text-right">${formatPrice(item.subtotal)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+
+      <div class="total-section">
+        <div class="total-row">
+          <span>Subtotal:</span>
+          <span>${formatPrice(order.pricing.subtotal)}</span>
+        </div>
+        <div class="total-row">
+          <span>Impuestos (21%):</span>
+          <span>${formatPrice(order.pricing.tax)}</span>
+        </div>
+        <div class="total-row">
+          <span>Envío:</span>
+          <span>${order.pricing.shipping === 0 ? 'GRATIS' : formatPrice(order.pricing.shipping)}</span>
+        </div>
+        <div class="total-row total-final">
+          <span>TOTAL:</span>
+          <span>${formatPrice(order.pricing.total)}</span>
+        </div>
+      </div>
+
+      <div class="footer">
+        <p>Gracias por tu compra en UriShop</p>
+        <p>Para consultas, contacta a: support@urishop.com</p>
+        <p>Este documento fue generado automáticamente el ${formatDate(new Date())}</p>
+      </div>
+    </body>
+    </html>
+  `;
+}

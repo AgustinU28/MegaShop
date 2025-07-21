@@ -1,4 +1,4 @@
-// frontend/src/components/orders/OrderDetail.jsx
+// frontend/src/components/orders/OrderDetail.jsx - Corregido con validaciones defensivas
 import React, { useState, useEffect } from 'react';
 import { 
   Container, 
@@ -40,7 +40,17 @@ const OrderDetail = () => {
       try {
         setLoading(true);
         const response = await orderService.getOrderById(id);
-        setOrder(response.data);
+        
+        // ✅ DEBUG: Verificar estructura de datos recibidos
+        console.log('📦 Order received from API:', response);
+        console.log('📦 Order.data:', response.data);
+        console.log('📦 Order.data.data:', response.data.data);
+        
+        // ✅ Extraer datos correctamente (igual que en OrderList)
+        const orderData = response.data.data || response.data;
+        console.log('✅ Processed order data:', orderData);
+        
+        setOrder(orderData);
       } catch (err) {
         setError(err.message);
         console.error('Error loading order:', err);
@@ -54,7 +64,7 @@ const OrderDetail = () => {
     }
   }, [id]);
 
-  // Función para obtener el variant del badge según el estado
+  // ✅ Función para obtener el variant del badge según el estado
   const getStatusBadge = (status) => {
     const statusConfig = {
       pending: { variant: 'warning', icon: FaClock, text: 'Pendiente' },
@@ -76,15 +86,15 @@ const OrderDetail = () => {
     );
   };
 
-  // Función para formatear precio
+  // ✅ Función para formatear precio
   const formatPrice = (price) => {
     return new Intl.NumberFormat('es-AR', {
       style: 'currency',
       currency: 'ARS'
-    }).format(price);
+    }).format(price || 0);
   };
 
-  // Función para formatear fecha
+  // ✅ Función para formatear fecha
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('es-AR', {
       year: 'numeric',
@@ -95,34 +105,49 @@ const OrderDetail = () => {
     });
   };
 
-  // Función para descargar factura
-  const handleDownloadInvoice = () => {
-    // Aquí implementarías la descarga de la factura
-    console.log('Descargando factura...');
+  // ✅ Manejar descarga de factura
+  const handleDownloadInvoice = async () => {
+    try {
+      setLoading(true); // Mostrar estado de carga
+      console.log('📄 Downloading invoice for order:', order?.orderNumber);
+      
+      await orderService.downloadInvoice(order._id);
+      
+      // Mostrar mensaje de éxito
+      alert(`✅ Factura descargada exitosamente para la orden ${order?.orderNumber}`);
+      
+    } catch (error) {
+      console.error('Error downloading invoice:', error);
+      alert(`❌ Error al descargar la factura: ${error.message}`);
+    } finally {
+      setLoading(false); // Ocultar estado de carga
+    }
   };
 
-  // Función para ver seguimiento
+  // ✅ Manejar visualización de seguimiento
   const handleViewTracking = () => {
     setShowTrackingModal(true);
   };
 
+  // Loading state
   if (loading) {
     return (
       <Container className="py-5 text-center">
         <Spinner animation="border" role="status">
-          <span className="visually-hidden">Cargando...</span>
+          <span className="visually-hidden">Cargando orden...</span>
         </Spinner>
         <p className="mt-2">Cargando detalles de la orden...</p>
       </Container>
     );
   }
 
+  // Error state
   if (error) {
     return (
       <Container className="py-5">
         <Alert variant="danger">
-          <h5>Error al cargar la orden</h5>
-          <p>{error}</p>
+          <h4>Error al cargar la orden</h4>
+          <p>No se pudo cargar la información de la orden. La orden que buscas no existe o no tienes permisos para verla.</p>
           <Button variant="outline-danger" onClick={() => navigate('/orders')}>
             Volver a órdenes
           </Button>
@@ -131,12 +156,13 @@ const OrderDetail = () => {
     );
   }
 
+  // No order found
   if (!order) {
     return (
       <Container className="py-5">
         <Alert variant="warning">
-          <h5>Orden no encontrada</h5>
-          <p>La orden que buscas no existe o no tienes permisos para verla.</p>
+          <h4>Orden no encontrada</h4>
+          <p>No se encontró la orden solicitada.</p>
           <Button variant="outline-warning" onClick={() => navigate('/orders')}>
             Volver a órdenes
           </Button>
@@ -144,6 +170,13 @@ const OrderDetail = () => {
       </Container>
     );
   }
+
+  // ✅ VALIDACIÓN DEFENSIVA: Asegurar que items existe
+  const orderItems = order.items || [];
+  const orderPricing = order.pricing || {};
+  const orderCustomer = order.customer || {};
+  const orderShipping = order.shipping || {};
+  const orderPayment = order.payment || {};
 
   return (
     <>
@@ -182,15 +215,25 @@ const OrderDetail = () => {
             {/* Productos */}
             <Card className="mb-4">
               <Card.Header className="d-flex justify-content-between align-items-center">
-                <h5 className="mb-0">Productos ({order.items.length})</h5>
+                <h5 className="mb-0">Productos ({orderItems.length})</h5>
                 <div className="d-flex gap-2">
                   <Button 
                     variant="outline-primary" 
                     size="sm"
                     onClick={handleDownloadInvoice}
+                    disabled={loading}
                   >
-                    <FaDownload className="me-1" />
-                    Factura
+                    {loading ? (
+                      <>
+                        <Spinner animation="border" size="sm" className="me-1" />
+                        Generando...
+                      </>
+                    ) : (
+                      <>
+                        <FaDownload className="me-1" />
+                        Factura
+                      </>
+                    )}
                   </Button>
                   {(order.status === 'shipped' || order.status === 'delivered') && (
                     <Button 
@@ -205,48 +248,57 @@ const OrderDetail = () => {
                 </div>
               </Card.Header>
               <Card.Body className="p-0">
-                <Table hover className="mb-0">
-                  <thead className="table-light">
-                    <tr>
-                      <th>Producto</th>
-                      <th className="text-center">Cantidad</th>
-                      <th className="text-end">Precio Unit.</th>
-                      <th className="text-end">Subtotal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {order.items.map((item, index) => (
-                      <tr key={index}>
-                        <td>
-                          <div className="d-flex align-items-center">
-                            <img 
-                              src={item.product?.thumbnail || '/placeholder-product.jpg'} 
-                              alt={item.product?.title}
-                              width="60"
-                              height="60"
-                              className="rounded me-3 object-fit-cover"
-                            />
-                            <div>
-                              <h6 className="mb-1">{item.product?.title}</h6>
-                              <p className="text-muted small mb-0">
-                                Código: {item.product?.code}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="text-center align-middle">
-                          <Badge bg="light" text="dark">{item.quantity}</Badge>
-                        </td>
-                        <td className="text-end align-middle">
-                          {formatPrice(item.price)}
-                        </td>
-                        <td className="text-end align-middle">
-                          <strong>{formatPrice(item.subtotal)}</strong>
-                        </td>
+                {orderItems.length === 0 ? (
+                  <div className="text-center py-4">
+                    <p className="text-muted">No hay productos en esta orden.</p>
+                  </div>
+                ) : (
+                  <Table hover className="mb-0">
+                    <thead className="table-light">
+                      <tr>
+                        <th>Producto</th>
+                        <th className="text-center">Cantidad</th>
+                        <th className="text-end">Precio Unit.</th>
+                        <th className="text-end">Subtotal</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </Table>
+                    </thead>
+                    <tbody>
+                      {orderItems.map((item, index) => (
+                        <tr key={index}>
+                          <td>
+                            <div className="d-flex align-items-center">
+                              <img 
+                                src={item.product?.thumbnail || item.image || '/placeholder-product.jpg'} 
+                                alt={item.product?.title || item.title}
+                                width="60"
+                                height="60"
+                                className="rounded me-3 object-fit-cover"
+                                onError={(e) => {
+                                  e.target.src = '/placeholder-product.jpg';
+                                }}
+                              />
+                              <div>
+                                <h6 className="mb-1">{item.product?.title || item.title || 'Producto sin nombre'}</h6>
+                                <p className="text-muted small mb-0">
+                                  Código: {item.product?.code || item.productId || 'N/A'}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="text-center">
+                            <span className="fw-bold">{item.quantity || 1}</span>
+                          </td>
+                          <td className="text-end">
+                            {formatPrice(item.price)}
+                          </td>
+                          <td className="text-end">
+                            <strong>{formatPrice(item.subtotal || (item.price * item.quantity))}</strong>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                )}
               </Card.Body>
             </Card>
 
@@ -262,112 +314,103 @@ const OrderDetail = () => {
                 <Row>
                   <Col md={6}>
                     <h6>Dirección de entrega</h6>
-                    <p className="mb-2">
-                      <strong>{order.shipping?.address?.name}</strong>
+                    <p className="mb-1">{orderShipping.address || 'No especificada'}</p>
+                    <p className="mb-1">
+                      {orderShipping.city && orderShipping.state ? 
+                        `${orderShipping.city}, ${orderShipping.state}` : 
+                        'Ciudad no especificada'
+                      }
                     </p>
-                    <p className="text-muted">
-                      {order.shipping?.address?.street}<br />
-                      {order.shipping?.address?.city}, {order.shipping?.address?.state}<br />
-                      CP: {order.shipping?.address?.zipCode}
+                    <p className="mb-1">
+                      CP: {orderShipping.zipCode || 'No especificado'}
+                    </p>
+                    <p className="mb-0">
+                      {orderShipping.country || 'Argentina'}
                     </p>
                   </Col>
-                  <Col md={6}>
-                    <h6>Método de envío</h6>
-                    <p className="mb-2">{order.shipping?.method}</p>
-                    <p className="text-muted">
-                      Costo: {order.shipping?.cost === 0 ? 'Gratis' : formatPrice(order.shipping.cost)}
-                    </p>
-                    {order.tracking?.number && (
-                      <p className="small">
-                        <strong>Número de seguimiento:</strong><br />
-                        <code>{order.tracking.number}</code>
-                      </p>
-                    )}
-                  </Col>
+                  {orderShipping.instructions && (
+                    <Col md={6}>
+                      <h6>Instrucciones especiales</h6>
+                      <p className="text-muted">{orderShipping.instructions}</p>
+                    </Col>
+                  )}
                 </Row>
               </Card.Body>
             </Card>
           </Col>
 
-          {/* Sidebar */}
+          {/* Información lateral */}
           <Col lg={4}>
-            {/* Resumen del pedido */}
+            {/* Resumen de pago */}
             <Card className="mb-4">
               <Card.Header>
-                <h6 className="mb-0">Resumen del Pedido</h6>
+                <h5 className="mb-0">Resumen de Pago</h5>
               </Card.Header>
               <Card.Body>
-                <div className="d-flex justify-content-between mb-2">
+                <div className="d-flex justify-content-between">
                   <span>Subtotal:</span>
-                  <span>{formatPrice(order.summary?.subtotal || 0)}</span>
+                  <span>{formatPrice(orderPricing.subtotal)}</span>
                 </div>
-                <div className="d-flex justify-content-between mb-2">
-                  <span>IVA (21%):</span>
-                  <span>{formatPrice(order.summary?.tax || 0)}</span>
+                <div className="d-flex justify-content-between">
+                  <span>Impuestos:</span>
+                  <span>{formatPrice(orderPricing.tax)}</span>
                 </div>
-                <div className="d-flex justify-content-between mb-2">
+                <div className="d-flex justify-content-between">
                   <span>Envío:</span>
                   <span>
-                    {order.summary?.shipping === 0 ? 
-                      <span className="text-success">Gratis</span> : 
-                      formatPrice(order.summary?.shipping || 0)
+                    {orderPricing.shipping === 0 ? 
+                      <Badge bg="success">Gratis</Badge> : 
+                      formatPrice(orderPricing.shipping)
                     }
                   </span>
                 </div>
-                {order.summary?.discount > 0 && (
-                  <div className="d-flex justify-content-between mb-2 text-success">
-                    <span>Descuento:</span>
-                    <span>-{formatPrice(order.summary.discount)}</span>
-                  </div>
-                )}
                 <hr />
-                <div className="d-flex justify-content-between">
-                  <strong>Total:</strong>
-                  <strong className="text-primary fs-5">
-                    {formatPrice(order.total)}
-                  </strong>
+                <div className="d-flex justify-content-between fw-bold fs-5">
+                  <span>Total:</span>
+                  <span>{formatPrice(orderPricing.total)}</span>
                 </div>
               </Card.Body>
             </Card>
 
-            {/* Información de contacto */}
+            {/* Información del cliente */}
             <Card className="mb-4">
               <Card.Header>
-                <h6 className="mb-0">Información de Contacto</h6>
+                <h5 className="mb-0">Cliente</h5>
               </Card.Header>
               <Card.Body>
-                <div className="d-flex align-items-center mb-2">
-                  <FaEnvelope className="me-2 text-muted" />
-                  <span>{order.customer?.email}</span>
-                </div>
-                {order.customer?.phone && (
-                  <div className="d-flex align-items-center">
-                    <FaPhone className="me-2 text-muted" />
-                    <span>{order.customer.phone}</span>
-                  </div>
-                )}
+                <p className="mb-2">
+                  <strong>{orderCustomer.firstName} {orderCustomer.lastName}</strong>
+                </p>
+                <p className="mb-2">
+                  <FaEnvelope className="me-2" />
+                  {orderCustomer.email}
+                </p>
+                <p className="mb-0">
+                  <FaPhone className="me-2" />
+                  {orderCustomer.phone}
+                </p>
               </Card.Body>
             </Card>
 
             {/* Información de pago */}
             <Card>
               <Card.Header>
-                <h6 className="mb-0">Información de Pago</h6>
+                <h5 className="mb-0">Pago</h5>
               </Card.Header>
               <Card.Body>
                 <p className="mb-2">
-                  <strong>Método:</strong> {order.payment?.method}
+                  <strong>Método:</strong> {orderPayment.method || 'No especificado'}
                 </p>
                 <p className="mb-2">
-                  <strong>Estado:</strong>{' '}
-                  <Badge bg={order.payment?.status === 'paid' ? 'success' : 'warning'}>
-                    {order.payment?.status === 'paid' ? 'Pagado' : 'Pendiente'}
+                  <strong>Estado:</strong>
+                  <Badge bg={orderPayment.status === 'completed' ? 'success' : 'warning'} className="ms-2">
+                    {orderPayment.status === 'completed' ? 'Pagado' : 'Pendiente'}
                   </Badge>
                 </p>
-                {order.payment?.transactionId && (
-                  <p className="small text-muted">
-                    <strong>ID Transacción:</strong><br />
-                    <code>{order.payment.transactionId}</code>
+                {orderPayment.paidAt && (
+                  <p className="small text-muted mb-0">
+                    <strong>Pagado el:</strong><br />
+                    {formatDate(orderPayment.paidAt)}
                   </p>
                 )}
               </Card.Body>
@@ -383,41 +426,46 @@ const OrderDetail = () => {
         </Modal.Header>
         <Modal.Body>
           <div className="tracking-timeline">
-            <p><strong>Número de seguimiento:</strong> {order.tracking?.number}</p>
-            <p><strong>Transportista:</strong> {order.tracking?.carrier}</p>
+            <p><strong>Número de orden:</strong> {order.orderNumber}</p>
             
             {/* Timeline de seguimiento */}
             <div className="mt-4">
               <h6>Estado del envío:</h6>
               <div className="timeline">
                 <div className="timeline-item completed">
-                  <div className="timeline-marker"></div>
+                  <div className="timeline-marker bg-success"></div>
                   <div className="timeline-content">
                     <h6>Orden confirmada</h6>
                     <p className="text-muted small">Tu orden ha sido confirmada y está siendo preparada</p>
                   </div>
                 </div>
-                <div className="timeline-item completed">
-                  <div className="timeline-marker"></div>
-                  <div className="timeline-content">
-                    <h6>En preparación</h6>
-                    <p className="text-muted small">Tu pedido está siendo preparado para el envío</p>
+                {order.status !== 'pending' && (
+                  <div className="timeline-item completed">
+                    <div className="timeline-marker bg-success"></div>
+                    <div className="timeline-content">
+                      <h6>En preparación</h6>
+                      <p className="text-muted small">Tu pedido está siendo preparado para el envío</p>
+                    </div>
                   </div>
-                </div>
-                <div className="timeline-item current">
-                  <div className="timeline-marker"></div>
-                  <div className="timeline-content">
-                    <h6>En tránsito</h6>
-                    <p className="text-muted small">Tu pedido está en camino</p>
+                )}
+                {(order.status === 'shipped' || order.status === 'delivered') && (
+                  <div className="timeline-item current">
+                    <div className="timeline-marker bg-primary"></div>
+                    <div className="timeline-content">
+                      <h6>En tránsito</h6>
+                      <p className="text-muted small">Tu pedido está en camino</p>
+                    </div>
                   </div>
-                </div>
-                <div className="timeline-item">
-                  <div className="timeline-marker"></div>
-                  <div className="timeline-content">
-                    <h6>Entregado</h6>
-                    <p className="text-muted small">Tu pedido ha sido entregado</p>
+                )}
+                {order.status === 'delivered' && (
+                  <div className="timeline-item completed">
+                    <div className="timeline-marker bg-success"></div>
+                    <div className="timeline-content">
+                      <h6>Entregado</h6>
+                      <p className="text-muted small">Tu pedido ha sido entregado</p>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -429,59 +477,43 @@ const OrderDetail = () => {
         </Modal.Footer>
       </Modal>
 
-      <style jsx>{`
+      {/* CSS para el timeline */}
+      <style>{`
         .timeline {
           position: relative;
-          padding-left: 2rem;
-        }
-        
-        .timeline::before {
-          content: '';
-          position: absolute;
-          left: 1rem;
-          top: 0;
-          bottom: 0;
-          width: 2px;
-          background: #dee2e6;
+          padding-left: 30px;
         }
         
         .timeline-item {
           position: relative;
-          margin-bottom: 2rem;
+          margin-bottom: 20px;
         }
         
         .timeline-marker {
           position: absolute;
-          left: -2rem;
-          top: 0;
-          width: 1rem;
-          height: 1rem;
+          left: -30px;
+          top: 5px;
+          width: 12px;
+          height: 12px;
           border-radius: 50%;
-          border: 2px solid #dee2e6;
-          background: white;
+        }
+        
+        .timeline-item:not(:last-child)::before {
+          content: '';
+          position: absolute;
+          left: -24px;
+          top: 17px;
+          width: 2px;
+          height: calc(100% + 5px);
+          background-color: #dee2e6;
         }
         
         .timeline-item.completed .timeline-marker {
-          background: #198754;
-          border-color: #198754;
+          background-color: #198754;
         }
         
         .timeline-item.current .timeline-marker {
-          background: #0d6efd;
-          border-color: #0d6efd;
-          animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-          0% {
-            box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.7);
-          }
-          70% {
-            box-shadow: 0 0 0 10px rgba(13, 110, 253, 0);
-          }
-          100% {
-            box-shadow: 0 0 0 0 rgba(13, 110, 253, 0);
-          }
+          background-color: #0d6efd;
         }
       `}</style>
     </>

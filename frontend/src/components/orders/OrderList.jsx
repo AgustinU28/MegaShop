@@ -1,4 +1,4 @@
-// frontend/src/components/orders/OrderList.jsx
+// frontend/src/components/orders/OrderList.jsx - Archivo completo corregido
 import React, { useState, useEffect } from 'react';
 import { 
   Container, 
@@ -68,6 +68,7 @@ const OrderList = () => {
     loadOrders();
   }, [filters, pagination.currentPage]);
 
+  // ✅ FUNCIÓN CORREGIDA
   const loadOrders = async () => {
     try {
       setLoading(true);
@@ -77,13 +78,30 @@ const OrderList = () => {
         ...filters
       };
 
+      console.log('🔍 Calling API with params:', queryParams);
       const response = await orderService.getAllOrders(queryParams);
       
-      setOrders(response.data.orders || []);
+      // ✅ DEBUG: Verificar estructura de la respuesta
+      console.log('📦 Full API Response:', response);
+      console.log('📦 Response.data:', response.data);
+      
+      // ✅ CORRECCIÓN: Acceso correcto a los datos
+      // El backend retorna: { success: true, data: { orders: [...], pagination: {...} } }
+      // El orderService envuelve esto en: { success: true, data: response.data, message: '...' }
+      // Por tanto necesitamos: response.data.data.orders
+      
+      const ordersData = response.data.data?.orders || [];
+      const paginationData = response.data.data?.pagination || {};
+      
+      console.log('✅ Extracted orders:', ordersData);
+      console.log('✅ Extracted pagination:', paginationData);
+      console.log('✅ Orders count:', ordersData.length);
+      
+      setOrders(ordersData);
       setPagination(prev => ({
         ...prev,
-        totalPages: response.data.totalPages || 1,
-        totalOrders: response.data.totalOrders || 0
+        totalPages: paginationData.totalPages || 1,
+        totalOrders: paginationData.totalOrders || 0
       }));
 
       // Actualizar URL
@@ -93,9 +111,10 @@ const OrderList = () => {
       });
       setSearchParams(newSearchParams);
 
+      setError(null);
     } catch (err) {
+      console.error('❌ Error in loadOrders:', err);
       setError(err.message);
-      console.error('Error loading orders:', err);
     } finally {
       setLoading(false);
     }
@@ -118,47 +137,8 @@ const OrderList = () => {
     setFilters(prev => ({ ...prev, sortBy: field, sortOrder: newOrder }));
   };
 
-  // Función para obtener el badge del estado
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      pending: { variant: 'warning', icon: FaClock, text: 'Pendiente' },
-      confirmed: { variant: 'info', icon: FaCheckCircle, text: 'Confirmado' },
-      processing: { variant: 'primary', icon: FaClock, text: 'Procesando' },
-      shipped: { variant: 'info', icon: FaShippingFast, text: 'Enviado' },
-      delivered: { variant: 'success', icon: FaCheckCircle, text: 'Entregado' },
-      cancelled: { variant: 'danger', icon: FaTimesCircle, text: 'Cancelado' }
-    };
-
-    const config = statusConfig[status] || statusConfig.pending;
-    const IconComponent = config.icon;
-
-    return (
-      <Badge bg={config.variant} className="d-flex align-items-center gap-1">
-        <IconComponent size={12} />
-        {config.text}
-      </Badge>
-    );
-  };
-
-  // Función para formatear precio
-  const formatPrice = (price) => {
-    return new Intl.NumberFormat('es-AR', {
-      style: 'currency',
-      currency: 'ARS'
-    }).format(price);
-  };
-
-  // Función para formatear fecha
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('es-AR', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  // Manejar selección múltiple
-  const handleSelectOrder = (orderId) => {
+  // ✅ FUNCIÓN CORREGIDA: Manejar selección de órdenes
+  const handleOrderSelection = (orderId) => {
     const newSelected = new Set(selectedOrders);
     if (newSelected.has(orderId)) {
       newSelected.delete(orderId);
@@ -168,41 +148,95 @@ const OrderList = () => {
     setSelectedOrders(newSelected);
   };
 
-  const handleSelectAll = () => {
-    if (selectedOrders.size === orders.length) {
-      setSelectedOrders(new Set());
-    } else {
-      setSelectedOrders(new Set(orders.map(order => order.id)));
+  // ✅ ACTUALIZADA: Manejar descarga de factura
+  const handleDownloadInvoice = async (orderId, orderNumber) => {
+    try {
+      console.log('📄 Downloading invoice for order:', orderNumber);
+      
+      await orderService.downloadInvoice(orderId);
+      
+      // Mostrar mensaje de éxito
+      alert(`✅ Factura descargada exitosamente para la orden ${orderNumber}`);
+      
+    } catch (error) {
+      console.error('Error downloading invoice:', error);
+      alert(`❌ Error al descargar la factura: ${error.message}`);
     }
   };
 
-  // Acciones en lote
+  // ✅ CORREGIDA: Manejar selección de todas las órdenes
+  const handleSelectAll = () => {
+    if (selectedOrders.size === orders.length && orders.length > 0) {
+      setSelectedOrders(new Set());
+    } else {
+      setSelectedOrders(new Set(orders.map(order => order._id)));
+    }
+  };
+
+  // ✅ ACTUALIZADA: Manejar acciones en lote
   const handleBulkAction = async () => {
     try {
       const orderIds = Array.from(selectedOrders);
+      console.log(`Executing ${bulkAction} for orders:`, orderIds);
       
       switch (bulkAction) {
         case 'download':
           await orderService.downloadOrdersReport(orderIds);
+          alert(`✅ Descargadas ${orderIds.length} facturas exitosamente`);
           break;
         case 'export':
-          await orderService.exportOrders(orderIds);
+          // TODO: Implementar exportación a Excel si es necesario
+          alert(`📊 Exportando ${orderIds.length} órdenes a Excel...`);
+          // await orderService.exportOrders(orderIds);
           break;
         default:
           break;
       }
       
-      setSelectedOrders(new Set());
       setShowBulkModal(false);
-    } catch (err) {
-      console.error('Error en acción en lote:', err);
+      setSelectedOrders(new Set());
+    } catch (error) {
+      console.error('Error en acción en lote:', error);
+      alert(`❌ Error al ejecutar la acción: ${error.message}`);
     }
   };
 
-  // Renderizar icono de ordenamiento
-  const renderSortIcon = (field) => {
-    if (filters.sortBy !== field) return <FaSort className="text-muted" />;
-    return filters.sortOrder === 'asc' ? <FaSortUp /> : <FaSortDown />;
+  // Obtener estado del badge
+  const getStatusBadge = (status) => {
+    const statusConfig = {
+      pending: { variant: 'warning', text: 'Pendiente' },
+      confirmed: { variant: 'info', text: 'Confirmado' },
+      processing: { variant: 'primary', text: 'Procesando' },
+      shipped: { variant: 'info', text: 'Enviado' },
+      delivered: { variant: 'success', text: 'Entregado' },
+      cancelled: { variant: 'danger', text: 'Cancelado' }
+    };
+    return statusConfig[status] || statusConfig.pending;
+  };
+
+  // Formatear precio
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS'
+    }).format(price);
+  };
+
+  // Formatear fecha
+  const formatDate = (date) => {
+    return new Date(date).toLocaleDateString('es-AR', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  // Obtener ícono de ordenamiento
+  const getSortIcon = (field) => {
+    if (filters.sortBy !== field) return <FaSort className="ms-1" />;
+    return filters.sortOrder === 'asc' ? <FaSortUp className="ms-1" /> : <FaSortDown className="ms-1" />;
   };
 
   if (loading && orders.length === 0) {
@@ -274,76 +308,59 @@ const OrderList = () => {
         {/* Filtros */}
         <Card className="mb-4">
           <Card.Body>
-            <Row className="g-3">
+            <Row>
               <Col md={4}>
-                <InputGroup size="sm">
-                  <InputGroup.Text>
-                    <FaSearch />
-                  </InputGroup.Text>
+                <Form.Group>
+                  <Form.Label>Buscar</Form.Label>
+                  <InputGroup>
+                    <Form.Control
+                      type="text"
+                      placeholder="Número de orden o email..."
+                      value={filters.search}
+                      onChange={(e) => handleFilterChange('search', e.target.value)}
+                    />
+                    <Button variant="outline-secondary">
+                      <FaSearch />
+                    </Button>
+                  </InputGroup>
+                </Form.Group>
+              </Col>
+              <Col md={2}>
+                <Form.Group>
+                  <Form.Label>Estado</Form.Label>
+                  <Form.Select
+                    value={filters.status}
+                    onChange={(e) => handleFilterChange('status', e.target.value)}
+                  >
+                    <option value="">Todos los estados</option>
+                    <option value="pending">Pendiente</option>
+                    <option value="confirmed">Confirmado</option>
+                    <option value="processing">Procesando</option>
+                    <option value="shipped">Enviado</option>
+                    <option value="delivered">Entregado</option>
+                    <option value="cancelled">Cancelado</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Fecha desde</Form.Label>
                   <Form.Control
-                    type="text"
-                    placeholder="Buscar por número de orden..."
-                    value={filters.search}
-                    onChange={(e) => handleFilterChange('search', e.target.value)}
+                    type="date"
+                    value={filters.dateFrom}
+                    onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
                   />
-                </InputGroup>
+                </Form.Group>
               </Col>
-              
-              <Col md={2}>
-                <Form.Select 
-                  size="sm"
-                  value={filters.status}
-                  onChange={(e) => handleFilterChange('status', e.target.value)}
-                >
-                  <option value="">Todos los estados</option>
-                  <option value="pending">Pendiente</option>
-                  <option value="confirmed">Confirmado</option>
-                  <option value="processing">Procesando</option>
-                  <option value="shipped">Enviado</option>
-                  <option value="delivered">Entregado</option>
-                  <option value="cancelled">Cancelado</option>
-                </Form.Select>
-              </Col>
-
-              <Col md={2}>
-                <Form.Control
-                  type="date"
-                  size="sm"
-                  placeholder="Desde"
-                  value={filters.dateFrom}
-                  onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
-                />
-              </Col>
-
-              <Col md={2}>
-                <Form.Control
-                  type="date"
-                  size="sm"
-                  placeholder="Hasta"
-                  value={filters.dateTo}
-                  onChange={(e) => handleFilterChange('dateTo', e.target.value)}
-                />
-              </Col>
-
-              <Col md={2}>
-                <Button 
-                  variant="outline-secondary" 
-                  size="sm" 
-                  className="w-100"
-                  onClick={() => {
-                    setFilters({
-                      search: '',
-                      status: '',
-                      dateFrom: '',
-                      dateTo: '',
-                      sortBy: 'createdAt',
-                      sortOrder: 'desc'
-                    });
-                  }}
-                >
-                  <FaFilter className="me-1" />
-                  Limpiar
-                </Button>
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Fecha hasta</Form.Label>
+                  <Form.Control
+                    type="date"
+                    value={filters.dateTo}
+                    onChange={(e) => handleFilterChange('dateTo', e.target.value)}
+                  />
+                </Form.Group>
               </Col>
             </Row>
           </Card.Body>
@@ -351,35 +368,29 @@ const OrderList = () => {
 
         {/* Error */}
         {error && (
-          <Alert variant="danger" className="mb-4">
-            <h6>Error al cargar las órdenes</h6>
-            <p className="mb-0">{error}</p>
+          <Alert variant="danger" dismissible onClose={() => setError(null)}>
+            <strong>Error:</strong> {error}
           </Alert>
         )}
 
         {/* Tabla de órdenes */}
         <Card>
           <Card.Body className="p-0">
-            {orders.length === 0 ? (
+            {orders.length === 0 && !loading ? (
               <div className="text-center py-5">
-                <FaShoppingCart size={48} className="text-muted mb-3" />
-                <h5>No hay órdenes</h5>
-                <p className="text-muted">
-                  {filters.search || filters.status ? 
-                    'No se encontraron órdenes con los filtros aplicados.' :
-                    'Aún no has realizado ninguna compra.'
-                  }
-                </p>
+                <FaShoppingCart size={64} className="text-muted mb-3" />
+                <h4>No hay órdenes</h4>
+                <p className="text-muted">Aún no has realizado ninguna compra.</p>
                 <Button variant="primary" as={Link} to="/shop">
                   Ir a la tienda
                 </Button>
               </div>
             ) : (
               <>
-                <Table responsive hover className="mb-0">
+                <Table responsive className="mb-0">
                   <thead className="table-light">
                     <tr>
-                      <th width="40">
+                      <th>
                         <Form.Check
                           type="checkbox"
                           checked={selectedOrders.size === orders.length && orders.length > 0}
@@ -387,135 +398,81 @@ const OrderList = () => {
                         />
                       </th>
                       <th 
-                        className="cursor-pointer user-select-none"
+                        className="cursor-pointer"
                         onClick={() => handleSort('orderNumber')}
                       >
-                        Orden {renderSortIcon('orderNumber')}
+                        Número de Orden {getSortIcon('orderNumber')}
                       </th>
                       <th 
-                        className="cursor-pointer user-select-none"
+                        className="cursor-pointer"
                         onClick={() => handleSort('createdAt')}
                       >
-                        Fecha {renderSortIcon('createdAt')}
+                        Fecha {getSortIcon('createdAt')}
                       </th>
                       <th>Estado</th>
-                      <th>Productos</th>
+                      <th>Items</th>
                       <th 
-                        className="cursor-pointer user-select-none text-end"
-                        onClick={() => handleSort('total')}
+                        className="cursor-pointer"
+                        onClick={() => handleSort('pricing.total')}
                       >
-                        Total {renderSortIcon('total')}
+                        Total {getSortIcon('pricing.total')}
                       </th>
-                      <th width="120" className="text-center">Acciones</th>
+                      <th>Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {orders.map((order) => (
-                      <tr key={order.id}>
+                      <tr key={order._id}>
                         <td>
                           <Form.Check
                             type="checkbox"
-                            checked={selectedOrders.has(order.id)}
-                            onChange={() => handleSelectOrder(order.id)}
+                            checked={selectedOrders.has(order._id)}
+                            onChange={() => handleOrderSelection(order._id)}
                           />
                         </td>
                         <td>
-                          <div>
-                            <strong>#{order.orderNumber}</strong>
-                            {order.isUrgent && (
-                              <Badge bg="warning" className="ms-2">Urgente</Badge>
-                            )}
-                          </div>
+                          <strong>{order.orderNumber}</strong>
                         </td>
                         <td>
-                          <div>
-                            <div>{formatDate(order.createdAt)}</div>
-                            <small className="text-muted">
-                              {new Date(order.createdAt).toLocaleTimeString('es-AR', {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </small>
-                          </div>
+                          <small className="text-muted">
+                            {formatDate(order.createdAt)}
+                          </small>
                         </td>
                         <td>
-                          {getStatusBadge(order.status)}
+                          <Badge bg={getStatusBadge(order.status).variant}>
+                            {getStatusBadge(order.status).text}
+                          </Badge>
                         </td>
                         <td>
-                          <div>
-                            <span>{order.items?.length || 0} producto{(order.items?.length || 0) !== 1 ? 's' : ''}</span>
-                            {order.items && order.items.length > 0 && (
-                              <div className="d-flex mt-1">
-                                {order.items.slice(0, 3).map((item, index) => (
-                                  <img
-                                    key={index}
-                                    src={item.product?.thumbnail || '/placeholder-product.jpg'}
-                                    alt={item.product?.title}
-                                    width="24"
-                                    height="24"
-                                    className="rounded me-1 border"
-                                    style={{ objectFit: 'cover' }}
-                                  />
-                                ))}
-                                {order.items.length > 3 && (
-                                  <div 
-                                    className="d-flex align-items-center justify-content-center bg-light border rounded"
-                                    style={{ width: '24px', height: '24px', fontSize: '10px' }}
-                                  >
-                                    +{order.items.length - 3}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
+                          <small>
+                            {order.items?.length || 0} producto{(order.items?.length || 0) !== 1 ? 's' : ''}
+                          </small>
                         </td>
-                        <td className="text-end">
-                          <strong>{formatPrice(order.total)}</strong>
-                          {order.payment?.method && (
-                            <div>
-                              <small className="text-muted">{order.payment.method}</small>
-                            </div>
-                          )}
+                        <td>
+                          <strong>{formatPrice(order.pricing?.total || 0)}</strong>
                         </td>
-                        <td className="text-center">
-                          <div className="d-flex gap-1 justify-content-center">
+                        <td>
+                          <div className="d-flex gap-1">
+                            {/* ✅ BOTÓN VER - Corregido con order._id y title */}
                             <Button
-                              as={Link}
-                              to={`/orders/${order.id}`}
                               variant="outline-primary"
                               size="sm"
-                              title="Ver detalles"
+                              as={Link}
+                              to={`/orders/${order._id}`}
+                              title="Ver detalles de la orden"
                             >
                               <FaEye />
                             </Button>
-                            <Dropdown>
-                              <Dropdown.Toggle
-                                variant="outline-secondary"
-                                size="sm"
-                                className="no-caret"
-                              >
-                                ⋮
-                              </Dropdown.Toggle>
-                              <Dropdown.Menu>
-                                <Dropdown.Item as={Link} to={`/orders/${order.id}`}>
-                                  <FaEye className="me-2" />
-                                  Ver detalles
-                                </Dropdown.Item>
-                                <Dropdown.Item onClick={() => {/* Download invoice */}}>
-                                  <FaDownload className="me-2" />
-                                  Descargar factura
-                                </Dropdown.Item>
-                                {order.status === 'pending' && (
-                                  <>
-                                    <Dropdown.Divider />
-                                    <Dropdown.Item className="text-danger">
-                                      <FaTrash className="me-2" />
-                                      Cancelar orden
-                                    </Dropdown.Item>
-                                  </>
-                                )}
-                              </Dropdown.Menu>
-                            </Dropdown>
+                            
+                            {/* ✅ BOTÓN DESCARGAR - Con función implementada */}
+                            <Button
+                              variant="outline-secondary"
+                              size="sm"
+                              onClick={() => handleDownloadInvoice(order._id, order.orderNumber)}
+                              title="Descargar factura"
+                            >
+                              <FaDownload />
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -616,38 +573,6 @@ const OrderList = () => {
           </Button>
         </Modal.Footer>
       </Modal>
-
-      <style>{`
-        .cursor-pointer {
-          cursor: pointer;
-        }
-        
-        .no-caret::after {
-          display: none;
-        }
-        
-        th.cursor-pointer:hover {
-          background-color: rgba(0, 0, 0, 0.05);
-        }
-        
-        .table th {
-          border-bottom: 2px solid #dee2e6;
-          font-weight: 600;
-          background-color: #f8f9fa !important;
-        }
-        
-        .table td {
-          vertical-align: middle;
-        }
-        
-        .badge {
-          font-size: 0.75em;
-        }
-        
-        .position-fixed {
-          z-index: 1050;
-        }
-      `}</style>
     </>
   );
 };

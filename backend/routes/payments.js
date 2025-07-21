@@ -1,6 +1,7 @@
-// backend/routes/payments.js - Archivo completo y correcto
+// backend/routes/payments.js - Con autenticación y usuario asignado
 const express = require('express');
 const router = express.Router();
+const { auth, optionalAuth } = require('../middleware/auth'); // ✅ Importar middleware
 
 // Test route
 router.get('/test', (req, res) => {
@@ -91,11 +92,12 @@ router.get('/config', (req, res) => {
   });
 });
 
-// Confirm payment - Versión de debugging
-router.post('/confirm-payment', async (req, res) => {
+// ✅ Confirm payment - Con autenticación opcional y usuario asignado
+router.post('/confirm-payment', optionalAuth, async (req, res) => {
   try {
     console.log('🔄 Confirm payment called');
     console.log('📦 Full request body:', JSON.stringify(req.body, null, 2));
+    console.log('👤 User from auth:', req.user ? { id: req.user.id, email: req.user.email } : 'No user');
     
     const { paymentIntentId, orderData, shippingInfo, customerInfo } = req.body;
 
@@ -137,6 +139,7 @@ router.post('/confirm-payment', async (req, res) => {
         items: orderData.items,
         customer: customerInfo,
         shipping: shippingInfo,
+        user: req.user ? req.user.id : null, // ✅ Agregar usuario si está autenticado
         createdAt: new Date().toISOString()
       };
 
@@ -158,8 +161,14 @@ router.post('/confirm-payment', async (req, res) => {
 
     console.log('💰 Totals calculated:', { subtotal, tax, shipping, total });
 
-    // Preparar datos de la orden
+    // ✅ Preparar datos de la orden CON USUARIO
     const orderToCreate = {
+      // ✅ Agregar orderNumber explícitamente
+      orderNumber: `ORD-${Date.now()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
+      
+      // ✅ CRÍTICO: Asignar usuario si está autenticado
+      user: req.user ? req.user.id : null,
+      
       customer: {
         firstName: customerInfo.firstName,
         lastName: customerInfo.lastName,
@@ -174,15 +183,25 @@ router.post('/confirm-payment', async (req, res) => {
         instructions: shippingInfo.instructions || '',
         country: 'Argentina'
       },
-      items: orderData.items.map(item => ({
-        product: item.product || null,
-        productId: item.productId || item.id,
-        title: item.title || item.name,
-        price: item.price,
-        quantity: item.quantity,
-        subtotal: item.price * item.quantity,
-        image: item.image || ''
-      })),
+      // ✅ Mapeo corregido de items
+      items: orderData.items.map((item, index) => {
+        console.log(`🔍 Mapping item ${index + 1}:`, JSON.stringify(item, null, 2));
+        
+        const mappedItem = {
+          product: item.product?._id || item.product || null,
+          productId: item.productId || item.product?.id || item.id || index + 1,
+          // ✅ Corrección principal: obtener título del objeto product
+          title: item.product?.title || item.title || item.name || `Producto ${index + 1}`,
+          price: item.price,
+          quantity: item.quantity,
+          subtotal: item.price * item.quantity,
+          // ✅ Obtener imagen del producto
+          image: item.product?.thumbnail || item.image || item.thumbnail || ''
+        };
+        
+        console.log(`✅ Mapped item ${index + 1}:`, mappedItem);
+        return mappedItem;
+      }),
       pricing: {
         subtotal: subtotal,
         tax: tax,
@@ -204,16 +223,33 @@ router.post('/confirm-payment', async (req, res) => {
       }]
     };
 
-    console.log('📋 Order data prepared');
+    // ✅ Logging mejorado para debug
+    console.log('📋 Order data prepared:');
+    console.log('- OrderNumber:', orderToCreate.orderNumber);
+    console.log('- User ID:', orderToCreate.user || 'No user assigned');
+    console.log('- Items count:', orderToCreate.items.length);
+    console.log('- First item title:', orderToCreate.items[0]?.title);
+    console.log('- Customer:', orderToCreate.customer.firstName, orderToCreate.customer.lastName);
+    console.log('- Total amount:', orderToCreate.pricing.total);
 
     // Intentar crear orden en la base de datos
     console.log('💾 Attempting to save order to database...');
     
     try {
       const order = new Order(orderToCreate);
+      
+      // ✅ Validar datos antes de guardar
+      console.log('🔍 Validating order data before saving...');
+      const validationErrors = order.validateSync();
+      if (validationErrors) {
+        console.error('❌ Validation errors found:', validationErrors.errors);
+        throw validationErrors;
+      }
+      
       const savedOrder = await order.save();
       
       console.log('✅ Order saved successfully:', savedOrder.orderNumber);
+      console.log('👤 Order assigned to user:', savedOrder.user || 'No user');
 
       res.json({
         success: true,
@@ -227,6 +263,7 @@ router.post('/confirm-payment', async (req, res) => {
           customer: savedOrder.customer,
           shipping: savedOrder.shipping,
           payment: savedOrder.payment,
+          user: savedOrder.user,
           createdAt: savedOrder.createdAt
         }
       });
@@ -234,6 +271,13 @@ router.post('/confirm-payment', async (req, res) => {
     } catch (dbError) {
       console.error('❌ Database error:', dbError.message);
       console.error('Full error:', dbError);
+      
+      // ✅ Logging detallado del error
+      if (dbError.errors) {
+        Object.keys(dbError.errors).forEach(key => {
+          console.error(`❌ Field error [${key}]:`, dbError.errors[key].message);
+        });
+      }
       
       // Si falla la BD, devolver orden temporal
       const temporalOrder = {
@@ -245,7 +289,9 @@ router.post('/confirm-payment', async (req, res) => {
         items: orderData.items,
         customer: customerInfo,
         shipping: shippingInfo,
-        createdAt: new Date().toISOString()
+        user: req.user ? req.user.id : null, // ✅ Incluir usuario en temporal también
+        createdAt: new Date().toISOString(),
+        error: dbError.message
       };
 
       console.log('⚠️ Returning temporal order due to DB error');
@@ -254,7 +300,8 @@ router.post('/confirm-payment', async (req, res) => {
         success: true,
         message: 'Pago confirmado (orden temporal por error en BD)',
         order: temporalOrder,
-        warning: 'La orden no se guardó en la base de datos'
+        warning: 'La orden no se guardó en la base de datos',
+        dbError: process.env.NODE_ENV === 'development' ? dbError.message : undefined
       });
     }
 

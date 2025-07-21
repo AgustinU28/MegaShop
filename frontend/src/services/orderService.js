@@ -1,4 +1,4 @@
-// frontend/src/services/orderService.js
+// frontend/src/services/orderService.js - Archivo completo actualizado
 import api from './api';
 
 class OrderService {
@@ -119,10 +119,10 @@ class OrderService {
     }
   }
 
-  // ====== MÉTODOS DE DESCARGA Y EXPORTACIÓN ======
+  // ====== MÉTODOS DE DESCARGA Y EXPORTACIÓN - ACTUALIZADOS ======
 
   /**
-   * Descargar factura de una orden
+   * Descargar factura de una orden como PDF
    * @param {string|number} orderId - ID de la orden
    */
   async downloadInvoice(orderId) {
@@ -130,6 +130,8 @@ class OrderService {
       if (!orderId) {
         throw new Error('ID de orden requerido');
       }
+
+      console.log('📄 Downloading invoice for order:', orderId);
 
       const response = await api.get(`/orders/${orderId}/invoice`, {
         responseType: 'blob'
@@ -140,23 +142,33 @@ class OrderService {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `factura-orden-${orderId}.pdf`;
+      
+      // Generar nombre de archivo con timestamp
+      const timestamp = new Date().toISOString().split('T')[0];
+      link.download = `factura-orden-${orderId}-${timestamp}.pdf`;
+      
+      // Agregar al DOM, hacer clic y remover
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      
+      // Limpiar URL del objeto
       window.URL.revokeObjectURL(url);
 
+      console.log('✅ Invoice downloaded successfully');
+      
       return {
         success: true,
         message: 'Factura descargada exitosamente'
       };
     } catch (error) {
+      console.error('❌ Error downloading invoice:', error);
       throw new Error(error.response?.data?.message || 'Error al descargar la factura');
     }
   }
 
   /**
-   * Descargar facturas de múltiples órdenes
+   * Descargar facturas de múltiples órdenes como un reporte
    * @param {Array} orderIds - Array de IDs de órdenes
    */
   async downloadOrdersReport(orderIds) {
@@ -165,7 +177,9 @@ class OrderService {
         throw new Error('Debe seleccionar al menos una orden');
       }
 
-      const response = await api.post('/orders/download-report', 
+      console.log('📄 Downloading bulk invoice report for orders:', orderIds);
+
+      const response = await api.post('/orders/bulk-invoice', 
         { orderIds }, 
         { responseType: 'blob' }
       );
@@ -175,18 +189,24 @@ class OrderService {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `reporte-ordenes-${new Date().toISOString().split('T')[0]}.pdf`;
+      
+      const timestamp = new Date().toISOString().split('T')[0];
+      link.download = `reporte-facturas-${timestamp}.pdf`;
+      
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
+      console.log('✅ Bulk invoice report downloaded successfully');
+
       return {
         success: true,
-        message: 'Reporte descargado exitosamente'
+        message: 'Reporte de facturas descargado exitosamente'
       };
     } catch (error) {
-      throw new Error(error.response?.data?.message || 'Error al descargar el reporte');
+      console.error('❌ Error downloading bulk invoice report:', error);
+      throw new Error(error.response?.data?.message || 'Error al descargar el reporte de facturas');
     }
   }
 
@@ -200,29 +220,37 @@ class OrderService {
         throw new Error('Debe seleccionar al menos una orden');
       }
 
+      console.log('📊 Exporting orders to Excel:', orderIds);
+
       const response = await api.post('/orders/export', 
         { orderIds }, 
         { responseType: 'blob' }
       );
 
-      // Crear y descargar el archivo
+      // Crear y descargar el archivo Excel
       const blob = new Blob([response.data], { 
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
       });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `ordenes-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+      
+      const timestamp = new Date().toISOString().split('T')[0];
+      link.download = `ordenes-${timestamp}.xlsx`;
+      
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
+      console.log('✅ Orders exported to Excel successfully');
+
       return {
         success: true,
-        message: 'Órdenes exportadas exitosamente'
+        message: 'Órdenes exportadas a Excel exitosamente'
       };
     } catch (error) {
+      console.error('❌ Error exporting orders to Excel:', error);
       throw new Error(error.response?.data?.message || 'Error al exportar las órdenes');
     }
   }
