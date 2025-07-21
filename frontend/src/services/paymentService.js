@@ -1,4 +1,4 @@
-// frontend/src/services/paymentService.js
+// frontend/src/services/paymentService.js - Versión corregida
 import api from './api';
 
 class PaymentService {
@@ -12,12 +12,15 @@ class PaymentService {
     }
   }
 
-  // Crear Payment Intent
+  // Crear Payment Intent - CAMBIADO A USD
   async createPaymentIntent(amount, metadata = {}) {
     try {
+      // Convertir ARS a USD aproximadamente (1 USD = 1000 ARS aprox)
+      const amountInUSD = Math.round(amount / 1000);
+      
       const response = await api.post('/payments/create-payment-intent', {
-        amount,
-        currency: 'ars',
+        amount: amountInUSD, // Usar USD para pruebas
+        currency: 'usd',     // Cambiar a USD
         metadata
       });
       return response.data;
@@ -42,8 +45,8 @@ class PaymentService {
   }
 
   // Formatear precio para mostrar
-  formatPrice(amount, currency = 'ARS') {
-    return new Intl.NumberFormat('es-AR', {
+  formatPrice(amount, currency = 'USD') {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currency
     }).format(amount);
@@ -73,4 +76,3 @@ class PaymentService {
 }
 
 export default new PaymentService();
-

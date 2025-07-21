@@ -617,7 +617,7 @@ const OrderList = () => {
         </Modal.Footer>
       </Modal>
 
-      <style jsx>{`
+      <style>{`
         .cursor-pointer {
           cursor: pointer;
         }
